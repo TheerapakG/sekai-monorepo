@@ -238,6 +238,14 @@ async def on_ready():
     client.diff_musics.start()
 
 @client.event
+async def on_resumed():
+    announce_channel = client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"])) if "ANNOUNCE_CHANNEL" in os.environ else None
+    if announce_channel and isinstance(announce_channel, discord.TextChannel):
+        client.announce_channel = announce_channel
+    print("RESUMED: starting pjsk polling")
+    client.diff_musics.start()
+
+@client.event
 async def on_disconnect():
     print("DISCONNECTED: canceling pjsk polling")
     client.diff_musics.cancel()
