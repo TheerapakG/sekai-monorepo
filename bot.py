@@ -218,6 +218,8 @@ client = MyClient(intents=intents)
 
 @client.event
 async def on_ready():
+    if "TEST" not in os.environ:
+        await client.tree.sync()
     for guild in client.guilds:
         await client.setup_guild(guild)
     announce_channel = client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"])) if "ANNOUNCE_CHANNEL" in os.environ else None
@@ -375,7 +377,7 @@ class MusicGroup(discord.app_commands.Group):
                 out_embed.set_footer(text=BOT_VERSION)
                 await interaction.followup.send(embed=out_embed)
             elif len(music_datas) > 10:
-                out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({len(music_datas)})", description="Too many music in the list to show! Try using other format")
+                out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({len(music_datas)})", description="Too many music in the list to show! Try using other design")
                 out_embed.set_footer(text=BOT_VERSION)
                 await interaction.followup.send(embed=out_embed)
             else:
