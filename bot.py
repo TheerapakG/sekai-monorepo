@@ -24,7 +24,8 @@ load_dotenv()
 repo = git.Repo(search_parent_directories=True) # type: ignore
 date = repo.head.commit.committed_datetime
 sha = repo.head.commit.hexsha
-BOT_VERSION = f"TiaraPJSKBot-{date.date().isoformat()}-{sha[:7]}"
+dirty = repo.is_dirty(untracked_files=True)
+BOT_VERSION = "-".join(i for i in ["TiaraPJSKBot", date.date().isoformat().replace("-", ""), sha[:7], "dev" if dirty else None] if i)
 
 CATEGORY = {MusicCategory.MV_2D.value: "2d", MusicCategory.MV.value: "3d", MusicCategory.ORIGINAL.value: "original"}
 
@@ -247,14 +248,17 @@ async def on_guild_join(guild: discord.Guild):
 
 @dataclass
 class MusicData:
-    title: str | None
-    asset_bundle_name: str | None
+    title: Optional[str]
+    ids: dict[str, int]
+    lyricist: Optional[str]
+    composer: Optional[str]
+    arranger: Optional[str]
     categories: list[MusicCategory]
     tags: list[str]
-    publish_at: datetime.datetime | None
+    publish_at: Optional[datetime.datetime]
     difficulties: list[MusicDifficulty | None]
-    ids: dict[str, int]
-    release_condition: ReleaseCondition | None
+    release_condition: Optional[ReleaseCondition]
+    asset_bundle_name: Optional[str]
 
     def title_str(self):
         return self.title if self.title else "??"
@@ -328,6 +332,9 @@ class MusicData:
             embed.add_field(name="title", value=self.title_str())
 
         embed.add_field(name="ids", value=self.ids_str(), inline=False)
+        embed.add_field(name="lyricist", value=self.lyricist if self.lyricist else "-", inline=False)
+        embed.add_field(name="composer", value=self.composer if self.composer else "-")
+        embed.add_field(name="arranger", value=self.arranger if self.arranger else "-")
         embed.add_field(name="categories", value=categories_str, inline=False)
         embed.add_field(name="tags", value=tag_str)
         embed.add_field(name="publish at", value=self.publish_at_str(), inline=False)
@@ -358,13 +365,16 @@ class MusicData:
 
         return cls(
             title=music.title,
-            asset_bundle_name=music.asset_bundle_name,
+            ids=music_ids,
+            lyricist=music.lyricist,
+            composer=music.composer,
+            arranger=music.arranger,
             categories=music_categories,
             tags=music_tags,
             publish_at=music.published_at,
             difficulties=music_difficulties,
-            ids=music_ids,
             release_condition=release_conditions_dict.get(music.release_condition_id) if music.release_condition_id else None,
+            asset_bundle_name=music.asset_bundle_name,
         )
 
 class MusicGroup(discord.app_commands.Group):
