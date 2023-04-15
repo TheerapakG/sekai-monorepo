@@ -194,24 +194,30 @@ class MyClient(discord.Client):
 
     @tasks.loop(seconds=60)
     async def diff_musics(self):
-        if musics := pjsk_client.master_data.musics:
-            if pjsk_client.update_all():
-                if new_musics := pjsk_client.master_data.musics:
-                    musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
-                    if musics_diff["list:add"]:
-                        prepare_music_data_dicts()
-                    for diff in musics_diff["list:add"]:
-                        if len(diff["right_path"]) == 1:
-                            music: Music = diff["right"]
-                            music_data = MusicData.from_music(music)
-                            if announce_channel := self.announce_channel:
-                                out_embed = discord.Embed(title=f"new music found!")
-                                out_embed.set_footer(text=BOT_VERSION)
-                                out_embed_file = music_data.add_embed_fields(out_embed, set_title=False)
-                                if out_embed_file:
-                                    await announce_channel.send(file=out_embed_file, embed=out_embed)
-                                else:
-                                    await announce_channel.send(embed=out_embed)
+        musics = pjsk_client.master_data.musics
+        if not musics:
+            musics = []
+
+        if pjsk_client.update_all():
+            new_musics = pjsk_client.master_data.musics
+            if not new_musics:
+                new_musics = []
+                
+            musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
+            if musics_diff["list:add"]:
+                prepare_music_data_dicts()
+            for diff in musics_diff["list:add"]:
+                if len(diff["right_path"]) == 1:
+                    music: Music = diff["right"]
+                    music_data = MusicData.from_music(music)
+                    if announce_channel := self.announce_channel:
+                        out_embed = discord.Embed(title=f"new music found!")
+                        out_embed.set_footer(text=BOT_VERSION)
+                        out_embed_file = music_data.add_embed_fields(out_embed, set_title=False)
+                        if out_embed_file:
+                            await announce_channel.send(file=out_embed_file, embed=out_embed)
+                        else:
+                            await announce_channel.send(embed=out_embed)
 
 intents = discord.Intents.default()
 client = MyClient(intents=intents)
