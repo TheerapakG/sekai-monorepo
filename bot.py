@@ -58,6 +58,8 @@ pjsk_client = Client(
     user_data_file_path=str((pjsk_path / "user-data.json").absolute()),
     asset_directory=str((pjsk_path / "asset").absolute()),
 )
+if not any(dict(pjsk_client.master_data).values()):
+    pjsk_client.update_all()
 
 import UnityPy
 import UnityPy.config
@@ -202,7 +204,7 @@ class MyClient(discord.Client):
             new_musics = pjsk_client.master_data.musics
             if not new_musics:
                 new_musics = []
-                
+
             musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
             if musics_diff["list:add"]:
                 prepare_music_data_dicts()
