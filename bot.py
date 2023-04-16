@@ -187,13 +187,15 @@ def load_asset(asset_bundle_str: str, force: bool = False) -> list[str]:
 class MyClient(discord.Client):
     announce_channel: Optional[discord.TextChannel]
     def __init__(self, *, intents: discord.Intents):
-        super().__init__(intents=intents)
+        activity = discord.Game(name=BOT_VERSION)
+        super().__init__(activity=activity, intents=intents)
         self.tree = discord.app_commands.CommandTree(self)
         self.announce_channel = None
 
     async def setup_guild(self, guild: discord.Guild):
-        self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+        if "TEST" in os.environ:
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
 
     @tasks.loop(seconds=60)
     async def diff_musics(self):
