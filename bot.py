@@ -7,13 +7,15 @@ from dotenv import load_dotenv
 import git
 import os
 from pathlib import Path
-from pjsekai.client import Client
 from pjsekai.enums.enums import MusicDifficultyType
+from pjsekai.enums.platform import Platform
 from pjsekai.enums.unknown import Unknown
-from pjsekai.models.master_data import Music, MusicCategory, MusicDifficulty, MusicDifficultyType, ReleaseCondition, ResourceBox, ResourceBoxPurpose, ResourceBoxType, ResourceType
+from async_pjsekai.models.master_data import Music, MusicCategory, MusicDifficulty, MusicDifficultyType, ReleaseCondition, ResourceBox, ResourceBoxPurpose, ResourceBoxType, ResourceType
 import shutil
 import subprocess
 from typing import Optional, Literal
+
+from async_pjsekai.client import Client
 
 import jycm.helper
 jycm.helper.make_json_path_key = lambda l: l
@@ -49,24 +51,11 @@ TAG_LONG = {
     "other": "other",
 }
 
-print("starting pjsk client ...")
-pjsk_path = Path(os.environ["PJSK_DATA"]) if "PJSK_DATA" in os.environ else Path.cwd()
-pjsk_client = Client(
-    bytes(os.environ["KEY"], encoding="utf-8"),
-    bytes(os.environ["IV"], encoding="utf-8"),
-    system_info_file_path=str((pjsk_path / "system-info.json").absolute()),
-    master_data_file_path=str((pjsk_path / "master-data.json").absolute()),
-    user_data_file_path=str((pjsk_path / "user-data.json").absolute()),
-    asset_directory=str((pjsk_path / "asset").absolute()),
-)
-if not any(dict(pjsk_client.master_data).values()):
-    pjsk_client.update_all()
-
 import UnityPy
 import UnityPy.config
 from UnityPy.tools.extractor import EXPORT_TYPES, export_obj
 
-UnityPy.config.FALLBACK_UNITY_VERSION = pjsk_client.platform.unity_version
+UnityPy.config.FALLBACK_UNITY_VERSION = Platform.ANDROID.unity_version
 
 export_types_keys = list(EXPORT_TYPES.keys())
 
@@ -76,114 +65,6 @@ def defaulted_export_index(type):
     except (IndexError, ValueError):
         return 999
 
-musics_dict: dict[int, Music] = {}
-difficulties_dict: dict[int, dict[MusicDifficultyType | Unknown, MusicDifficulty]] = {}
-release_conditions_dict: dict[int, ReleaseCondition] = {}
-music_resource_boxes_dict: dict[int, ResourceBox] = {}
-music_tags_dict: defaultdict[int, set[str]] = defaultdict(set)
-
-def prepare_music_data_dicts():
-    musics_dict.clear()
-    if musics := pjsk_client.master_data.musics:
-        for music in musics:
-            if music_id := music.id:
-                musics_dict[music_id] = music
-
-    difficulties_dict.clear()
-    if difficulties := pjsk_client.master_data.music_difficulties:
-        for difficulty in difficulties:
-            if (music_id := difficulty.music_id) and (music_difficulty := difficulty.music_difficulty):
-                difficulty_types_dict = difficulties_dict.get(music_id, {})
-                difficulty_types_dict[music_difficulty] = difficulty
-                difficulties_dict[music_id] = difficulty_types_dict
-    
-    release_conditions_dict.clear()
-    if release_conditions := pjsk_client.master_data.release_conditions:
-        for condition in release_conditions:
-            if (condition_id := condition.id):
-                release_conditions_dict[condition_id] = condition
-    
-    music_resource_boxes_dict.clear()
-    if resource_boxes := pjsk_client.master_data.resource_boxes:
-        for resource_box in resource_boxes:
-            if resource_box.resource_box_purpose == ResourceBoxPurpose.SHOP_ITEM and resource_box.resource_box_type == ResourceBoxType.EXPAND:
-                if details := resource_box.details:
-                    for detail in details:
-                        if (detail.resource_type == ResourceType.MUSIC) and (resource_id := detail.resource_id):
-                            music_resource_boxes_dict[resource_id] = resource_box
-
-    music_tags_dict.clear()
-    if tags := pjsk_client.master_data.music_tags:
-        for tag in tags:
-            if (music_id := tag.music_id) and (music_tag := tag.music_tag):
-                music_tags_dict[music_id].add(music_tag)
-
-prepare_music_data_dicts()
-
-def load_asset(asset_bundle_str: str, force: bool = False) -> list[str]:
-    if directory := pjsk_client.asset_directory:
-        if (asset := pjsk_client.asset) and (asset_bundle_info := asset.asset_bundle_info) and (bundles := asset_bundle_info.bundles):
-            bundle_hash = bundles[asset_bundle_str].hash if asset_bundle_str in bundles else None
-            if not bundle_hash:
-                bundle_hash = ""
-            
-            if (directory / "bundle" / f"{asset_bundle_str}.unity3d").exists():
-                try:
-                    with open(directory / "hash" / asset_bundle_str, "r") as f:
-                        if f.read() == bundle_hash and not force:
-                            print(f"bundle {asset_bundle_str} already updated")
-                            with open(directory / "path" / asset_bundle_str, "r") as f:
-                                return f.readlines()
-                except FileNotFoundError:
-                    pass
-                
-                print(f"updating bundle {asset_bundle_str}")
-            else:
-                print(f"downloading bundle {asset_bundle_str}")
-
-            paths: list[str] = []
-
-            with pjsk_client.api_manager.download_asset_bundle(asset_bundle_str) as asset_bundle:
-                (directory / "bundle" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
-                with open(directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb") as f:
-                    for chunk in asset_bundle.chunks:
-                        f.write(chunk)
-
-                env = UnityPy.load(str(directory / "bundle" / f"{asset_bundle_str}.unity3d"))
-                container = sorted(
-                    env.container.items(), key=lambda x: defaulted_export_index(x[1].type)
-                )
-
-                for obj_path, obj in container:
-                    obj_path = "/".join(x for x in obj_path.split("/") if x)
-                    obj_dest = directory / obj_path
-                    obj_dest.parent.mkdir(parents=True, exist_ok=True)
-
-                    paths.append(obj_path)
-
-                    print(f"extracting {obj_path}")
-
-                    export_obj(
-                        obj, # type: ignore
-                        obj_dest,
-                    )
-
-                    if obj_dest.suffixes == [".acb", ".bytes"]:
-                        shutil.copy(obj_dest, obj_dest.with_suffix(""))
-                        subprocess.run(["./vgmstream-cli", "-o", obj_dest.parent / "?n.wav", "-S", "0", obj_dest.with_suffix("")])
-            
-            (directory / "path" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
-            with open(directory / "path" / asset_bundle_str, "w") as f:
-                f.writelines(paths)
-
-            (directory / "hash" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
-            with open(directory / "hash" / asset_bundle_str, "w") as f:
-                f.write(bundle_hash)
-                    
-            print(f"updated bundle {asset_bundle_str}")
-            return paths
-    return []
-
 class MyClient(discord.Client):
     announce_channel: Optional[discord.TextChannel]
     def __init__(self, *, intents: discord.Intents):
@@ -192,32 +73,155 @@ class MyClient(discord.Client):
         self.tree = discord.app_commands.CommandTree(self)
         self.announce_channel = None
 
+        pjsk_path = Path(os.environ["PJSK_DATA"]) if "PJSK_DATA" in os.environ else Path.cwd()
+        self.pjsk_client = Client(
+            bytes(os.environ["KEY"], encoding="utf-8"),
+            bytes(os.environ["IV"], encoding="utf-8"),
+            system_info_file_path=str((pjsk_path / "system-info.json").absolute()),
+            master_data_file_path=str((pjsk_path / "master-data.json").absolute()),
+            user_data_file_path=str((pjsk_path / "user-data.json").absolute()),
+            asset_directory=str((pjsk_path / "asset").absolute()),
+        )
+
+        self.musics_dict: dict[int, Music] = {}
+        self.difficulties_dict: dict[int, dict[MusicDifficultyType | Unknown, MusicDifficulty]] = {}
+        self.release_conditions_dict: dict[int, ReleaseCondition] = {}
+        self.music_resource_boxes_dict: dict[int, ResourceBox] = {}
+        self.music_tags_dict: defaultdict[int, set[str]] = defaultdict(set)
+
+    async def setup_hook(self):
+        await self.pjsk_client.start()
+        if not any(dict(self.pjsk_client.master_data).values()):
+            await self.pjsk_client.update_all()
+        self.prepare_music_data_dicts()
+
     async def setup_guild(self, guild: discord.Guild):
         if "TEST" in os.environ:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
 
-    @tasks.loop(seconds=60)
-    async def diff_musics(self):
-        musics = musics_dict.copy()
+    def prepare_music_data_dicts(self):
+        self.musics_dict.clear()
+        if musics := self.pjsk_client.master_data.musics:
+            for music in musics:
+                if music_id := music.id:
+                    self.musics_dict[music_id] = music
 
-        if pjsk_client.update_all():
-            prepare_music_data_dicts()
-            new_musics = musics_dict.copy()
+        self.difficulties_dict.clear()
+        if difficulties := self.pjsk_client.master_data.music_difficulties:
+            for difficulty in difficulties:
+                if (music_id := difficulty.music_id) and (music_difficulty := difficulty.music_difficulty):
+                    difficulty_types_dict = self.difficulties_dict.get(music_id, {})
+                    difficulty_types_dict[music_difficulty] = difficulty
+                    self.difficulties_dict[music_id] = difficulty_types_dict
+        
+        self.release_conditions_dict.clear()
+        if release_conditions := self.pjsk_client.master_data.release_conditions:
+            for condition in release_conditions:
+                if (condition_id := condition.id):
+                    self.release_conditions_dict[condition_id] = condition
+        
+        self.music_resource_boxes_dict.clear()
+        if resource_boxes := self.pjsk_client.master_data.resource_boxes:
+            for resource_box in resource_boxes:
+                if resource_box.resource_box_purpose == ResourceBoxPurpose.SHOP_ITEM and resource_box.resource_box_type == ResourceBoxType.EXPAND:
+                    if details := resource_box.details:
+                        for detail in details:
+                            if (detail.resource_type == ResourceType.MUSIC) and (resource_id := detail.resource_id):
+                                self.music_resource_boxes_dict[resource_id] = resource_box
+
+        self.music_tags_dict.clear()
+        if tags := self.pjsk_client.master_data.music_tags:
+            for tag in tags:
+                if (music_id := tag.music_id) and (music_tag := tag.music_tag):
+                    self.music_tags_dict[music_id].add(music_tag)
+
+    async def load_asset(self, asset_bundle_str: str, force: bool = False) -> list[str]:
+        if directory := self.pjsk_client.asset_directory:
+            if (asset := self.pjsk_client.asset) and (asset_bundle_info := asset.asset_bundle_info) and (bundles := asset_bundle_info.bundles):
+                bundle_hash = bundles[asset_bundle_str].hash if asset_bundle_str in bundles else None
+                if not bundle_hash:
+                    bundle_hash = ""
+                
+                if (directory / "bundle" / f"{asset_bundle_str}.unity3d").exists():
+                    try:
+                        with open(directory / "hash" / asset_bundle_str, "r") as f:
+                            if f.read() == bundle_hash and not force:
+                                print(f"bundle {asset_bundle_str} already updated")
+                                with open(directory / "path" / asset_bundle_str, "r") as f:
+                                    return f.readlines()
+                    except FileNotFoundError:
+                        pass
+                    
+                    print(f"updating bundle {asset_bundle_str}")
+                else:
+                    print(f"downloading bundle {asset_bundle_str}")
+
+                paths: list[str] = []
+
+                async with self.pjsk_client.api_manager.download_asset_bundle(asset_bundle_str) as asset_bundle:
+                    (directory / "bundle" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
+                    with open(directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb") as f:
+                        async for chunk in asset_bundle.chunks:
+                            f.write(chunk)
+
+                    env = UnityPy.load(str(directory / "bundle" / f"{asset_bundle_str}.unity3d"))
+                    container = sorted(
+                        env.container.items(), key=lambda x: defaulted_export_index(x[1].type)
+                    )
+
+                    for obj_path, obj in container:
+                        obj_path = "/".join(x for x in obj_path.split("/") if x)
+                        obj_dest = directory / obj_path
+                        obj_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                        paths.append(obj_path)
+
+                        print(f"extracting {obj_path}")
+
+                        export_obj(
+                            obj, # type: ignore
+                            obj_dest,
+                        )
+
+                        if obj_dest.suffixes == [".acb", ".bytes"]:
+                            shutil.copy(obj_dest, obj_dest.with_suffix(""))
+                            subprocess.run(["./vgmstream-cli", "-o", obj_dest.parent / "?n.wav", "-S", "0", obj_dest.with_suffix("")])
+                
+                (directory / "path" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
+                with open(directory / "path" / asset_bundle_str, "w") as f:
+                    f.writelines(paths)
+
+                (directory / "hash" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
+                with open(directory / "hash" / asset_bundle_str, "w") as f:
+                    f.write(bundle_hash)
+                        
+                print(f"updated bundle {asset_bundle_str}")
+                return paths
+        return []
+
+    @tasks.loop(seconds=60)
+    async def diff_musics_task(self):
+        musics = self.musics_dict.copy()
+
+        if await self.pjsk_client.update_all():
+            self.prepare_music_data_dicts()
+            new_musics = self.musics_dict.copy()
 
             musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
-            for diff in musics_diff["dict:add"]:
-                if len(diff["right_path"]) == 1:
-                    music: Music = diff["right"]
-                    music_data = MusicData.from_music(music)
-                    if announce_channel := self.announce_channel:
-                        out_embed = discord.Embed(title=f"new music found!")
-                        out_embed.set_footer(text=BOT_VERSION)
-                        out_embed_file = music_data.add_embed_fields(out_embed, set_title=False)
-                        if out_embed_file:
-                            await announce_channel.send(file=out_embed_file, embed=out_embed)
-                        else:
-                            await announce_channel.send(embed=out_embed)
+            if "dict:add" in musics_diff:
+                for diff in musics_diff["dict:add"]:
+                    if len(diff["right_path"]) == 1:
+                        music: Music = diff["right"]
+                        music_data = MusicData.from_music(music)
+                        if announce_channel := self.announce_channel:
+                            out_embed = discord.Embed(title=f"new music found!")
+                            out_embed.set_footer(text=BOT_VERSION)
+                            out_embed_file = await music_data.add_embed_fields(out_embed, set_title=False)
+                            if out_embed_file:
+                                await announce_channel.send(file=out_embed_file, embed=out_embed)
+                            else:
+                                await announce_channel.send(embed=out_embed)
 
 intents = discord.Intents.default()
 client = MyClient(intents=intents)
@@ -232,7 +236,7 @@ async def on_ready():
     if announce_channel and isinstance(announce_channel, discord.TextChannel):
         client.announce_channel = announce_channel
     print("CONNECTED: starting pjsk polling")
-    client.diff_musics.start()
+    client.diff_musics_task.start()
 
 @client.event
 async def on_resumed():
@@ -240,12 +244,12 @@ async def on_resumed():
     if announce_channel and isinstance(announce_channel, discord.TextChannel):
         client.announce_channel = announce_channel
     print("RESUMED: starting pjsk polling")
-    client.diff_musics.start()
+    client.diff_musics_task.start()
 
 @client.event
 async def on_disconnect():
     print("DISCONNECTED: canceling pjsk polling")
-    client.diff_musics.cancel()
+    client.diff_musics_task.cancel()
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
@@ -281,10 +285,10 @@ class MusicData:
         return f"<t:{int(self.publish_at.timestamp())}:f>" if self.publish_at else "??"
     
     def difficulty_short_strs(self):
-        return [f"{e.play_level if e.play_level else '??'} ({e.totalNoteCount if e.totalNoteCount else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
+        return [f"{e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
     
     def difficulty_long_strs(self):
-        return [f"{e.music_difficulty.value}: {e.play_level if e.play_level else '??'} ({e.totalNoteCount if e.totalNoteCount else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
+        return [f"{e.music_difficulty.value}: {e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
     
     def ids_str(self):
         return " ".join(f"{k}: {v}" for k, v in self.ids.items() if k and v)
@@ -325,7 +329,7 @@ class MusicData:
             self.release_condition_str()
         ])
     
-    def add_embed_fields(self, embed: discord.Embed, set_title=True):
+    async def add_embed_fields(self, embed: discord.Embed, set_title=True):
         categories = self.category_strs()
         categories_str = f"{', '.join(categories)}" if categories else None
         tags = self.tag_long_strs()
@@ -346,9 +350,9 @@ class MusicData:
         embed.add_field(name="difficulties", value="\n".join(self.difficulty_long_strs()), inline=False)
         embed.add_field(name="release condition",value=self.release_condition_str(), inline=False)
 
-        img_path = load_asset(f"music/jacket/{self.asset_bundle_name}")
+        img_path = await client.load_asset(f"music/jacket/{self.asset_bundle_name}")
 
-        if img_path and (directory := pjsk_client.asset_directory):
+        if img_path and (directory := client.pjsk_client.asset_directory):
             filename = Path(img_path[0]).name
             file = discord.File(directory / img_path[0], filename=filename)
             embed.set_thumbnail(url=f"attachment://{filename}")
@@ -361,11 +365,11 @@ class MusicData:
         music_ids: dict[str, int] = {}
         music_difficulties: list[MusicDifficulty | None] = []
         if music.id:
-            music_tags = [tag for tag in music_tags_dict[music.id]] if music_tags_dict[music.id] else []
+            music_tags = [tag for tag in client.music_tags_dict[music.id]] if client.music_tags_dict[music.id] else []
             music_ids["m"] = music.id
-            if (music_resource_box := music_resource_boxes_dict.get(music.id)) and music_resource_box.id:
+            if (music_resource_box := client.music_resource_boxes_dict.get(music.id)) and music_resource_box.id:
                 music_ids["r"] = music_resource_box.id
-            _music_difficulties = difficulties_dict.get(music.id, {})
+            _music_difficulties = client.difficulties_dict.get(music.id, {})
             music_difficulties = [_music_difficulties.get(difficulty) for difficulty in MusicDifficultyType]
 
         return cls(
@@ -378,17 +382,17 @@ class MusicData:
             tags=music_tags,
             publish_at=music.published_at,
             difficulties=music_difficulties,
-            release_condition=release_conditions_dict.get(music.release_condition_id) if music.release_condition_id else None,
+            release_condition=client.release_conditions_dict.get(music.release_condition_id) if music.release_condition_id else None,
             asset_bundle_name=music.asset_bundle_name,
         )
 
 class MusicGroup(discord.app_commands.Group):
     @discord.app_commands.command()
-    async def list(self, interaction: discord.Interaction, design: Optional[Literal["quote", "embed"]]=None):
+    async def list(self, interaction: discord.Interaction[MyClient], design: Optional[Literal["quote", "embed"]]=None):
         await interaction.response.defer(thinking=True)
         music_datas: list[MusicData] = []
         current = datetime.datetime.now(datetime.timezone.utc)
-        musics = sorted(filter(lambda music: music.published_at and music.published_at > current, musics_dict.values()), key=lambda music: music.published_at if music.published_at else -1)
+        musics = sorted(filter(lambda music: music.published_at and music.published_at > current, interaction.client.musics_dict.values()), key=lambda music: music.published_at if music.published_at else -1)
         music_datas = [MusicData.from_music(m) for m in musics]
 
         if design == "quote":
@@ -409,7 +413,7 @@ class MusicGroup(discord.app_commands.Group):
                 for i, music_data in enumerate(music_datas, 1):
                     out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({i}/{len(music_datas)})")
                     out_embed.set_footer(text=BOT_VERSION)
-                    out_embed_file = music_data.add_embed_fields(out_embed, set_title=False)
+                    out_embed_file = await music_data.add_embed_fields(out_embed, set_title=False)
                     out_embeds.append(out_embed)
                     if out_embed_file:
                         out_embed_files.append(out_embed_file)
@@ -419,14 +423,14 @@ class MusicGroup(discord.app_commands.Group):
             await interaction.followup.send("\n".join(out_strs))
 
     @discord.app_commands.command()
-    async def view(self, interaction: discord.Interaction, id: int):
+    async def view(self, interaction: discord.Interaction[MyClient], id: int):
         await interaction.response.defer(thinking=True)
 
-        if music := musics_dict.get(id):
+        if music := interaction.client.musics_dict.get(id):
             music_data = MusicData.from_music(music)
             out_embed = discord.Embed()
             out_embed.set_footer(text=BOT_VERSION)
-            out_embed_file = music_data.add_embed_fields(out_embed)
+            out_embed_file = await music_data.add_embed_fields(out_embed)
             if out_embed_file:
                 await interaction.followup.send(file=out_embed_file, embed=out_embed)
             else:
