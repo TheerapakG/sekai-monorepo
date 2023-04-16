@@ -199,19 +199,14 @@ class MyClient(discord.Client):
 
     @tasks.loop(seconds=60)
     async def diff_musics(self):
-        musics = pjsk_client.master_data.musics
-        if not musics:
-            musics = []
+        musics = musics_dict.copy()
 
         if pjsk_client.update_all():
-            new_musics = pjsk_client.master_data.musics
-            if not new_musics:
-                new_musics = []
+            prepare_music_data_dicts()
+            new_musics = musics_dict.copy()
 
             musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
-            if musics_diff["list:add"]:
-                prepare_music_data_dicts()
-            for diff in musics_diff["list:add"]:
+            for diff in musics_diff["dict:add"]:
                 if len(diff["right_path"]) == 1:
                     music: Music = diff["right"]
                     music_data = MusicData.from_music(music)
