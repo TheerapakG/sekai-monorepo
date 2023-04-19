@@ -1,6 +1,8 @@
+import bisect
 from collections import defaultdict
 from dataclasses import dataclass
 import datetime
+import dateutil.parser
 import discord
 import discord.ext.tasks as tasks
 from dotenv import load_dotenv
@@ -10,7 +12,17 @@ from pathlib import Path
 from pjsekai.enums.enums import MusicDifficultyType
 from pjsekai.enums.platform import Platform
 from pjsekai.enums.unknown import Unknown
-from async_pjsekai.models.master_data import Music, MusicCategory, MusicDifficulty, MusicDifficultyType, ReleaseCondition, ResourceBox, ResourceBoxPurpose, ResourceBoxType, ResourceType
+from async_pjsekai.models.master_data import (
+    Music,
+    MusicCategory,
+    MusicDifficulty,
+    MusicDifficultyType,
+    ReleaseCondition,
+    ResourceBox,
+    ResourceBoxPurpose,
+    ResourceBoxType,
+    ResourceType,
+)
 import shutil
 import subprocess
 from typing import Optional, Literal
@@ -18,18 +30,32 @@ from typing import Optional, Literal
 from async_pjsekai.client import Client
 
 import jycm.helper
+
 jycm.helper.make_json_path_key = lambda l: l
 from jycm.jycm import YouchamaJsonDiffer
 
 load_dotenv()
 
-repo = git.Repo(search_parent_directories=True) # type: ignore
+repo = git.Repo(search_parent_directories=True)  # type: ignore
 date = repo.head.commit.committed_datetime
 sha = repo.head.commit.hexsha
 dirty = repo.is_dirty(untracked_files=True)
-BOT_VERSION = "-".join(i for i in ["TiaraPJSKBot", date.date().isoformat().replace("-", ""), sha[:7], "dev" if dirty else None] if i)
+BOT_VERSION = "-".join(
+    i
+    for i in [
+        "TiaraPJSKBot",
+        date.date().isoformat().replace("-", ""),
+        sha[:7],
+        "dev" if dirty else None,
+    ]
+    if i
+)
 
-CATEGORY = {MusicCategory.MV_2D.value: "2d", MusicCategory.MV.value: "3d", MusicCategory.ORIGINAL.value: "original"}
+CATEGORY = {
+    MusicCategory.MV_2D.value: "2d",
+    MusicCategory.MV.value: "3d",
+    MusicCategory.ORIGINAL.value: "original",
+}
 
 TAG_SHORT = {
     "vocaloid": "vir",
@@ -59,21 +85,26 @@ UnityPy.config.FALLBACK_UNITY_VERSION = Platform.ANDROID.unity_version
 
 export_types_keys = list(EXPORT_TYPES.keys())
 
+
 def defaulted_export_index(type):
     try:
         return export_types_keys.index(type)
     except (IndexError, ValueError):
         return 999
 
+
 class MyClient(discord.Client):
     announce_channel: Optional[discord.TextChannel]
+
     def __init__(self, *, intents: discord.Intents):
         activity = discord.Game(name=BOT_VERSION)
         super().__init__(activity=activity, intents=intents)
         self.tree = discord.app_commands.CommandTree(self)
         self.announce_channel = None
 
-        pjsk_path = Path(os.environ["PJSK_DATA"]) if "PJSK_DATA" in os.environ else Path.cwd()
+        pjsk_path = (
+            Path(os.environ["PJSK_DATA"]) if "PJSK_DATA" in os.environ else Path.cwd()
+        )
         self.pjsk_client = Client(
             bytes(os.environ["KEY"], encoding="utf-8"),
             bytes(os.environ["IV"], encoding="utf-8"),
@@ -84,7 +115,10 @@ class MyClient(discord.Client):
         )
 
         self.musics_dict: dict[int, Music] = {}
-        self.difficulties_dict: dict[int, dict[MusicDifficultyType | Unknown, MusicDifficulty]] = {}
+        self.musics_by_publish_at_list: list[Music] = []
+        self.difficulties_dict: dict[
+            int, dict[MusicDifficultyType | Unknown, MusicDifficulty]
+        ] = {}
         self.release_conditions_dict: dict[int, ReleaseCondition] = {}
         self.music_resource_boxes_dict: dict[int, ResourceBox] = {}
         self.music_tags_dict: defaultdict[int, set[str]] = defaultdict(set)
@@ -106,29 +140,42 @@ class MyClient(discord.Client):
             for music in musics:
                 if music_id := music.id:
                     self.musics_dict[music_id] = music
+            self.musics_by_publish_at_list = sorted(
+                musics,
+                key=lambda music: music.published_at if music.published_at else -1,
+            )
 
         self.difficulties_dict.clear()
         if difficulties := self.pjsk_client.master_data.music_difficulties:
             for difficulty in difficulties:
-                if (music_id := difficulty.music_id) and (music_difficulty := difficulty.music_difficulty):
+                if (music_id := difficulty.music_id) and (
+                    music_difficulty := difficulty.music_difficulty
+                ):
                     difficulty_types_dict = self.difficulties_dict.get(music_id, {})
                     difficulty_types_dict[music_difficulty] = difficulty
                     self.difficulties_dict[music_id] = difficulty_types_dict
-        
+
         self.release_conditions_dict.clear()
         if release_conditions := self.pjsk_client.master_data.release_conditions:
             for condition in release_conditions:
-                if (condition_id := condition.id):
+                if condition_id := condition.id:
                     self.release_conditions_dict[condition_id] = condition
-        
+
         self.music_resource_boxes_dict.clear()
         if resource_boxes := self.pjsk_client.master_data.resource_boxes:
             for resource_box in resource_boxes:
-                if resource_box.resource_box_purpose == ResourceBoxPurpose.SHOP_ITEM and resource_box.resource_box_type == ResourceBoxType.EXPAND:
+                if (
+                    resource_box.resource_box_purpose == ResourceBoxPurpose.SHOP_ITEM
+                    and resource_box.resource_box_type == ResourceBoxType.EXPAND
+                ):
                     if details := resource_box.details:
                         for detail in details:
-                            if (detail.resource_type == ResourceType.MUSIC) and (resource_id := detail.resource_id):
-                                self.music_resource_boxes_dict[resource_id] = resource_box
+                            if (detail.resource_type == ResourceType.MUSIC) and (
+                                resource_id := detail.resource_id
+                            ):
+                                self.music_resource_boxes_dict[
+                                    resource_id
+                                ] = resource_box
 
         self.music_tags_dict.clear()
         if tags := self.pjsk_client.master_data.music_tags:
@@ -138,36 +185,55 @@ class MyClient(discord.Client):
 
     async def load_asset(self, asset_bundle_str: str, force: bool = False) -> list[str]:
         if directory := self.pjsk_client.asset_directory:
-            if (asset := self.pjsk_client.asset) and (asset_bundle_info := asset.asset_bundle_info) and (bundles := asset_bundle_info.bundles):
-                bundle_hash = bundles[asset_bundle_str].hash if asset_bundle_str in bundles else None
+            if (
+                (asset := self.pjsk_client.asset)
+                and (asset_bundle_info := asset.asset_bundle_info)
+                and (bundles := asset_bundle_info.bundles)
+            ):
+                bundle_hash = (
+                    bundles[asset_bundle_str].hash
+                    if asset_bundle_str in bundles
+                    else None
+                )
                 if not bundle_hash:
                     bundle_hash = ""
-                
+
                 if (directory / "bundle" / f"{asset_bundle_str}.unity3d").exists():
                     try:
                         with open(directory / "hash" / asset_bundle_str, "r") as f:
                             if f.read() == bundle_hash and not force:
                                 print(f"bundle {asset_bundle_str} already updated")
-                                with open(directory / "path" / asset_bundle_str, "r") as f:
+                                with open(
+                                    directory / "path" / asset_bundle_str, "r"
+                                ) as f:
                                     return f.readlines()
                     except FileNotFoundError:
                         pass
-                    
+
                     print(f"updating bundle {asset_bundle_str}")
                 else:
                     print(f"downloading bundle {asset_bundle_str}")
 
                 paths: list[str] = []
 
-                async with self.pjsk_client.api_manager.download_asset_bundle(asset_bundle_str) as asset_bundle:
-                    (directory / "bundle" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
-                    with open(directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb") as f:
+                async with self.pjsk_client.api_manager.download_asset_bundle(
+                    asset_bundle_str
+                ) as asset_bundle:
+                    (directory / "bundle" / asset_bundle_str).parent.mkdir(
+                        parents=True, exist_ok=True
+                    )
+                    with open(
+                        directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb"
+                    ) as f:
                         async for chunk in asset_bundle.chunks:
                             f.write(chunk)
 
-                    env = UnityPy.load(str(directory / "bundle" / f"{asset_bundle_str}.unity3d"))
+                    env = UnityPy.load(
+                        str(directory / "bundle" / f"{asset_bundle_str}.unity3d")
+                    )
                     container = sorted(
-                        env.container.items(), key=lambda x: defaulted_export_index(x[1].type)
+                        env.container.items(),
+                        key=lambda x: defaulted_export_index(x[1].type),
                     )
 
                     for obj_path, obj in container:
@@ -180,22 +246,35 @@ class MyClient(discord.Client):
                         print(f"extracting {obj_path}")
 
                         export_obj(
-                            obj, # type: ignore
+                            obj,  # type: ignore
                             obj_dest,
                         )
 
                         if obj_dest.suffixes == [".acb", ".bytes"]:
                             shutil.copy(obj_dest, obj_dest.with_suffix(""))
-                            subprocess.run(["./vgmstream-cli", "-o", obj_dest.parent / "?n.wav", "-S", "0", obj_dest.with_suffix("")])
-                
-                (directory / "path" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
+                            subprocess.run(
+                                [
+                                    "./vgmstream-cli",
+                                    "-o",
+                                    obj_dest.parent / "?n.wav",
+                                    "-S",
+                                    "0",
+                                    obj_dest.with_suffix(""),
+                                ]
+                            )
+
+                (directory / "path" / asset_bundle_str).parent.mkdir(
+                    parents=True, exist_ok=True
+                )
                 with open(directory / "path" / asset_bundle_str, "w") as f:
                     f.writelines(paths)
 
-                (directory / "hash" / asset_bundle_str).parent.mkdir(parents=True, exist_ok=True)
+                (directory / "hash" / asset_bundle_str).parent.mkdir(
+                    parents=True, exist_ok=True
+                )
                 with open(directory / "hash" / asset_bundle_str, "w") as f:
                     f.write(bundle_hash)
-                        
+
                 print(f"updated bundle {asset_bundle_str}")
                 return paths
         return []
@@ -217,14 +296,20 @@ class MyClient(discord.Client):
                         if announce_channel := self.announce_channel:
                             out_embed = discord.Embed(title=f"new music found!")
                             out_embed.set_footer(text=BOT_VERSION)
-                            out_embed_file = await music_data.add_embed_fields(out_embed, set_title=False)
+                            out_embed_file = await music_data.add_embed_fields(
+                                out_embed, set_title=False
+                            )
                             if out_embed_file:
-                                await announce_channel.send(file=out_embed_file, embed=out_embed)
+                                await announce_channel.send(
+                                    file=out_embed_file, embed=out_embed
+                                )
                             else:
                                 await announce_channel.send(embed=out_embed)
 
+
 intents = discord.Intents.default()
 client = MyClient(intents=intents)
+
 
 @client.event
 async def on_ready():
@@ -232,28 +317,40 @@ async def on_ready():
         await client.tree.sync()
     for guild in client.guilds:
         await client.setup_guild(guild)
-    announce_channel = client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"])) if "ANNOUNCE_CHANNEL" in os.environ else None
+    announce_channel = (
+        client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
+        if "ANNOUNCE_CHANNEL" in os.environ
+        else None
+    )
     if announce_channel and isinstance(announce_channel, discord.TextChannel):
         client.announce_channel = announce_channel
     print("CONNECTED: starting pjsk polling")
     client.diff_musics_task.start()
 
+
 @client.event
 async def on_resumed():
-    announce_channel = client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"])) if "ANNOUNCE_CHANNEL" in os.environ else None
+    announce_channel = (
+        client.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
+        if "ANNOUNCE_CHANNEL" in os.environ
+        else None
+    )
     if announce_channel and isinstance(announce_channel, discord.TextChannel):
         client.announce_channel = announce_channel
     print("RESUMED: starting pjsk polling")
     client.diff_musics_task.start()
+
 
 @client.event
 async def on_disconnect():
     print("DISCONNECTED: canceling pjsk polling")
     client.diff_musics_task.cancel()
 
+
 @client.event
 async def on_guild_join(guild: discord.Guild):
     await client.setup_guild(guild)
+
 
 @dataclass
 class MusicData:
@@ -271,32 +368,36 @@ class MusicData:
 
     def title_str(self):
         return self.title if self.title else "??"
-    
+
     def category_strs(self):
-        return [CATEGORY[category.value] for category in self.categories if category.value and CATEGORY.get(category.value)]
-    
+        return [
+            CATEGORY[category.value]
+            for category in self.categories
+            if category.value and CATEGORY.get(category.value)
+        ]
+
     def tag_short_strs(self):
         return [name for tag, name in TAG_SHORT.items() if tag in self.tags]
-    
+
     def tag_long_strs(self):
         return [name for tag, name in TAG_LONG.items() if tag in self.tags]
 
     def publish_at_str(self):
         return f"<t:{int(self.publish_at.timestamp())}:f>" if self.publish_at else "??"
-    
+
     def difficulty_short_strs(self):
-        return [f"{e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
-    
+        return [f"{e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties]  # type: ignore
+
     def difficulty_long_strs(self):
-        return [f"{e.music_difficulty.value}: {e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties] # type: ignore
-    
+        return [f"{e.music_difficulty.value}: {e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties]  # type: ignore
+
     def ids_str(self):
         return " ".join(f"{k}: {v}" for k, v in self.ids.items() if k and v)
-    
+
     def release_condition_str(self):
         if not self.release_condition:
             return "??"
-        
+
         match self.release_condition.id:
             case None:
                 return "??"
@@ -308,27 +409,30 @@ class MusicData:
                 return "present"
             case _:
                 return f"{self.release_condition.id}: {self.release_condition.sentence}"
-            
+
     def get_str(self):
         categories = self.category_strs()
         tags = self.tag_short_strs()
-        return " | ".join([
-            " ".join([
-                s 
-                for s 
-                in [
-                    f"**{self.title_str()}**",
-                    f"[{'|'.join(categories)}]" if categories else None,
-                    f"[{'|'.join(tags)}]" if tags else None,
-                    self.publish_at_str()
-                ]
-                if s
-            ]),
-            f"LV: {'/'.join(self.difficulty_short_strs())}",
-            self.ids_str(),
-            self.release_condition_str()
-        ])
-    
+        return " | ".join(
+            [
+                " ".join(
+                    [
+                        s
+                        for s in [
+                            f"**{self.title_str()}**",
+                            f"[{'|'.join(categories)}]" if categories else None,
+                            f"[{'|'.join(tags)}]" if tags else None,
+                            self.publish_at_str(),
+                        ]
+                        if s
+                    ]
+                ),
+                f"LV: {'/'.join(self.difficulty_short_strs())}",
+                self.ids_str(),
+                self.release_condition_str(),
+            ]
+        )
+
     async def add_embed_fields(self, embed: discord.Embed, set_title=True):
         categories = self.category_strs()
         categories_str = f"{', '.join(categories)}" if categories else None
@@ -341,14 +445,22 @@ class MusicData:
             embed.add_field(name="title", value=self.title_str())
 
         embed.add_field(name="ids", value=self.ids_str(), inline=False)
-        embed.add_field(name="lyricist", value=self.lyricist if self.lyricist else "-", inline=False)
+        embed.add_field(
+            name="lyricist", value=self.lyricist if self.lyricist else "-", inline=False
+        )
         embed.add_field(name="composer", value=self.composer if self.composer else "-")
         embed.add_field(name="arranger", value=self.arranger if self.arranger else "-")
         embed.add_field(name="categories", value=categories_str, inline=False)
         embed.add_field(name="tags", value=tag_str)
         embed.add_field(name="publish at", value=self.publish_at_str(), inline=False)
-        embed.add_field(name="difficulties", value="\n".join(self.difficulty_long_strs()), inline=False)
-        embed.add_field(name="release condition",value=self.release_condition_str(), inline=False)
+        embed.add_field(
+            name="difficulties",
+            value="\n".join(self.difficulty_long_strs()),
+            inline=False,
+        )
+        embed.add_field(
+            name="release condition", value=self.release_condition_str(), inline=False
+        )
 
         img_path = await client.load_asset(f"music/jacket/{self.asset_bundle_name}")
 
@@ -357,20 +469,38 @@ class MusicData:
             file = discord.File(directory / img_path[0], filename=filename)
             embed.set_thumbnail(url=f"attachment://{filename}")
             return file
-    
+
     @classmethod
     def from_music(cls, music: Music):
-        music_categories: list[MusicCategory] = [category for category in music.categories if isinstance(category, MusicCategory) and category != MusicCategory.IMAGE] if music.categories else []
+        music_categories: list[MusicCategory] = (
+            [
+                category
+                for category in music.categories
+                if isinstance(category, MusicCategory)
+                and category != MusicCategory.IMAGE
+            ]
+            if music.categories
+            else []
+        )
         music_tags: list[str] = []
         music_ids: dict[str, int] = {}
         music_difficulties: list[MusicDifficulty | None] = []
         if music.id:
-            music_tags = [tag for tag in client.music_tags_dict[music.id]] if client.music_tags_dict[music.id] else []
+            music_tags = (
+                [tag for tag in client.music_tags_dict[music.id]]
+                if client.music_tags_dict[music.id]
+                else []
+            )
             music_ids["m"] = music.id
-            if (music_resource_box := client.music_resource_boxes_dict.get(music.id)) and music_resource_box.id:
+            if (
+                music_resource_box := client.music_resource_boxes_dict.get(music.id)
+            ) and music_resource_box.id:
                 music_ids["r"] = music_resource_box.id
             _music_difficulties = client.difficulties_dict.get(music.id, {})
-            music_difficulties = [_music_difficulties.get(difficulty) for difficulty in MusicDifficultyType]
+            music_difficulties = [
+                _music_difficulties.get(difficulty)
+                for difficulty in MusicDifficultyType
+            ]
 
         return cls(
             title=music.title,
@@ -382,45 +512,138 @@ class MusicData:
             tags=music_tags,
             publish_at=music.published_at,
             difficulties=music_difficulties,
-            release_condition=client.release_conditions_dict.get(music.release_condition_id) if music.release_condition_id else None,
+            release_condition=client.release_conditions_dict.get(
+                music.release_condition_id
+            )
+            if music.release_condition_id
+            else None,
             asset_bundle_name=music.asset_bundle_name,
         )
 
-class MusicGroup(discord.app_commands.Group):
-    @discord.app_commands.command()
-    async def list(self, interaction: discord.Interaction[MyClient], design: Optional[Literal["quote", "embed"]]=None):
-        await interaction.response.defer(thinking=True)
-        music_datas: list[MusicData] = []
-        current = datetime.datetime.now(datetime.timezone.utc)
-        musics = sorted(filter(lambda music: music.published_at and music.published_at > current, interaction.client.musics_dict.values()), key=lambda music: music.published_at if music.published_at else -1)
+
+class MusicListEmbedView(discord.ui.View):
+    def __init__(self, time: datetime.datetime, index: int = 1):
+        super().__init__()
+        self.time = time
+        self.index = index
+
+    async def process_interaction(
+        self, interaction: discord.Interaction[MyClient], *, edit=False
+    ):
+        if not edit:
+            await interaction.response.defer(thinking=True)
+        musics_by_publish_at_list = interaction.client.musics_by_publish_at_list
+        musics = musics_by_publish_at_list[
+            bisect.bisect_right(
+                musics_by_publish_at_list,
+                self.time,
+                key=lambda music: music.published_at if music.published_at else -1,
+            ) :
+        ]
         music_datas = [MusicData.from_music(m) for m in musics]
 
-        if design == "quote":
-            out_strs = [m.get_str() for m in music_datas] if music_datas else ["None!"]
-            await interaction.followup.send("\n".join(["```", *out_strs, "```"]))
-        elif design == "embed":
-            if not music_datas:
-                out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({len(music_datas)})", description="None!")
-                out_embed.set_footer(text=BOT_VERSION)
-                await interaction.followup.send(embed=out_embed)
-            elif len(music_datas) > 10:
-                out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({len(music_datas)})", description="Too many music in the list to show! Try using other design")
-                out_embed.set_footer(text=BOT_VERSION)
-                await interaction.followup.send(embed=out_embed)
+        if len(music_datas) == 0:
+            out_embed = discord.Embed(
+                title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({len(music_datas)})",
+                description="None!",
+            )
+            out_embed.set_footer(text=BOT_VERSION)
+            if edit:
+                await interaction.response.edit_message(embed=out_embed, view=self)
             else:
-                out_embeds: list[discord.Embed] = []
-                out_embed_files: list[discord.File] = []
-                for i, music_data in enumerate(music_datas, 1):
-                    out_embed = discord.Embed(title=f"Music releasing after <t:{int(current.timestamp())}:f> ({i}/{len(music_datas)})")
-                    out_embed.set_footer(text=BOT_VERSION)
-                    out_embed_file = await music_data.add_embed_fields(out_embed, set_title=False)
-                    out_embeds.append(out_embed)
-                    if out_embed_file:
-                        out_embed_files.append(out_embed_file)
-                await interaction.followup.send(files=out_embed_files, embeds=out_embeds)
+                await interaction.followup.send(embed=out_embed)
         else:
-            out_strs = [m.get_str() for m in music_datas] if music_datas else ["None!"]
-            await interaction.followup.send("\n".join(out_strs))
+            self.index = max(min(self.index, len(music_datas)), 1)
+            out_embed = discord.Embed(
+                title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({self.index}/{len(music_datas)})"
+            )
+            out_embed_file = await music_datas[self.index - 1].add_embed_fields(
+                out_embed, set_title=False
+            )
+            out_embed.set_footer(text=BOT_VERSION)
+            if edit:
+                await interaction.response.edit_message(
+                    attachments=[out_embed_file]
+                    if out_embed_file
+                    else discord.utils.MISSING,
+                    embed=out_embed,
+                    view=self,
+                )
+            else:
+                await interaction.followup.send(
+                    file=out_embed_file if out_embed_file else discord.utils.MISSING,
+                    embed=out_embed,
+                    view=self,
+                )
+
+    @discord.ui.button(label="previous", style=discord.ButtonStyle.primary)
+    async def previous(
+        self, interaction: discord.Interaction[MyClient], button: discord.ui.Button
+    ):
+        self.index = self.index - 1
+        await self.process_interaction(interaction, edit=True)
+
+    @discord.ui.button(label="next", style=discord.ButtonStyle.primary)
+    async def next(
+        self, interaction: discord.Interaction[MyClient], button: discord.ui.Button
+    ):
+        self.index = self.index + 1
+        await self.process_interaction(interaction, edit=True)
+
+
+class MusicGroup(discord.app_commands.Group):
+    @discord.app_commands.command()
+    async def list(
+        self,
+        interaction: discord.Interaction[MyClient],
+        after: Optional[str] = None,
+        design: Optional[Literal["quote", "embed"]] = None,
+    ):
+        if after:
+            after_dt = dateutil.parser.parse(after)
+            if after_dt.tzinfo is None or after_dt.tzinfo.utcoffset(after_dt) is None:
+                after_dt = after_dt.replace(tzinfo=datetime.timezone.utc)
+        else:
+            after_dt = datetime.datetime.now(datetime.timezone.utc)
+
+        match design:
+            case "quote":
+                await interaction.response.defer(thinking=True)
+                musics_by_publish_at_list = interaction.client.musics_by_publish_at_list
+                musics = musics_by_publish_at_list[
+                    bisect.bisect_right(
+                        musics_by_publish_at_list,
+                        after_dt,
+                        key=lambda music: music.published_at
+                        if music.published_at
+                        else -1,
+                    ) :
+                ]
+                music_datas = [MusicData.from_music(m) for m in musics]
+                out_strs = (
+                    [m.get_str() for m in music_datas] if music_datas else ["None!"]
+                )
+                await interaction.followup.send("\n".join(["```", *out_strs, "```"]))
+            case "embed":
+                view = MusicListEmbedView(after_dt)
+                await view.process_interaction(interaction)
+            case _:
+                await interaction.response.defer(thinking=True)
+                musics_by_publish_at_list = interaction.client.musics_by_publish_at_list
+                musics = musics_by_publish_at_list[
+                    bisect.bisect_right(
+                        musics_by_publish_at_list,
+                        after_dt,
+                        key=lambda music: music.published_at
+                        if music.published_at
+                        else -1,
+                    ) :
+                ]
+                music_datas = [MusicData.from_music(m) for m in musics]
+                out_strs = (
+                    [m.get_str() for m in music_datas] if music_datas else ["None!"]
+                )
+                await interaction.followup.send("\n".join(out_strs))
 
     @discord.app_commands.command()
     async def view(self, interaction: discord.Interaction[MyClient], id: int):
@@ -437,6 +660,7 @@ class MusicGroup(discord.app_commands.Group):
                 await interaction.followup.send(embed=out_embed)
         else:
             await interaction.followup.send("Not found!")
+
 
 client.tree.add_command(MusicGroup(name="music"))
 

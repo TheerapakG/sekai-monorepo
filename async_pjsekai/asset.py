@@ -10,36 +10,49 @@ from pathlib import Path
 from async_pjsekai.api import API
 from pjsekai.models import AssetBundleInfo
 
-class Asset:
 
+class Asset:
     _path: Optional[Path]
+
     @property
     def path(self) -> Optional[Path]:
         return self._path
-        
+
     _version: str
+
     @property
     def version(self) -> str:
         return self._version
 
     _hash: str
+
     @property
     def hash(self) -> str:
         return self._hash
 
     _asset_bundle_info: Optional[AssetBundleInfo]
+
     @property
     def asset_bundle_info(self) -> Optional[AssetBundleInfo]:
         return self._asset_bundle_info
+
     @asset_bundle_info.setter
     def asset_bundle_info(self, new_value: Optional[AssetBundleInfo]) -> None:
         self._asset_bundle_info = new_value
         if self.path is not None and new_value is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.joinpath("AssetBundleInfo.json").open("w") as f:
-                dump(new_value,f,indent=2,ensure_ascii=False,default=AssetBundleInfo.encoder)
+                dump(
+                    new_value,
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                    default=AssetBundleInfo.encoder,
+                )
 
-    def __init__(self, version: str, hash: str, asset_directory: Optional[str] = None) -> None:
+    def __init__(
+        self, version: str, hash: str, asset_directory: Optional[str] = None
+    ) -> None:
         self._path = None
         if asset_directory is not None:
             p = Path(asset_directory)
@@ -60,5 +73,7 @@ class Asset:
             self.asset_bundle_info = None
 
     async def get_asset_bundle_info(self, api_manager: API) -> AssetBundleInfo:
-        self.asset_bundle_info = AssetBundleInfo(**await api_manager.get_asset_bundle_info(self._version))
+        self.asset_bundle_info = AssetBundleInfo(
+            **await api_manager.get_asset_bundle_info(self._version)
+        )
         return self.asset_bundle_info

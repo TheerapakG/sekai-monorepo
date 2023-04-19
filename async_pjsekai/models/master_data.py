@@ -10,6 +10,7 @@ from pjsekai.enums import *
 from pjsekai.models.master_data import *
 from pjsekai.models.model import Model
 
+
 class MusicDifficulty(Model):
     id: Optional[int]
     music_id: Optional[int]
@@ -17,6 +18,7 @@ class MusicDifficulty(Model):
     play_level: Optional[int]
     release_condition_id: Optional[int]
     total_note_count: Optional[int]
+
 
 class MasterData(Model):
     game_characters: Optional[List[GameCharacter]]
@@ -103,7 +105,9 @@ class MasterData(Model):
     jewel_behaviors: Optional[List[JewelBehavior]]
     character_ranks: Optional[List[CharacterRank]]
     character_mission_v2s: Optional[List[CharacterMissionV2]]
-    character_mission_v2_parameter_groups: Optional[List[CharacterMissionV2ParameterGroup]]
+    character_mission_v2_parameter_groups: Optional[
+        List[CharacterMissionV2ParameterGroup]
+    ]
     character_mission_v2_area_items: Optional[List[CharacterMissionV2AreaItem]]
     system_live2ds: Optional[List[SystemLive2d]]
     normal_missions: Optional[List[NormalMission]]
@@ -132,7 +136,9 @@ class MasterData(Model):
     challenge_live_stage_exs: Optional[List[ChallengeLiveStageEx]]
     challenge_live_high_score_rewards: Optional[List[ChallengeLiveHighScoreReward]]
     challenge_live_characters: Optional[List[ChallengeLiveCharacter]]
-    challenge_live_play_day_reward_periods: Optional[List[ChallengeLivePlayDayRewardPeriod]]
+    challenge_live_play_day_reward_periods: Optional[
+        List[ChallengeLivePlayDayRewardPeriod]
+    ]
     virtual_lives: Optional[List[VirtualLive]]
     virtual_shops: Optional[List[VirtualShop]]
     virtual_items: Optional[List[VirtualItem]]
@@ -184,7 +190,9 @@ class MasterData(Model):
     episode_characters: Optional[List[EpisodeCharacter]]
     custom_profile_text_colors: Optional[List[CustomProfileTextColor]]
     custom_profile_text_fonts: Optional[List[CustomProfileTextFont]]
-    custom_profile_player_info_resources: Optional[List[CustomProfilePlayerInfoResource]]
+    custom_profile_player_info_resources: Optional[
+        List[CustomProfilePlayerInfoResource]
+    ]
     custom_profile_general_background_resources: Optional[
         List[CustomProfileGeneralBackgroundResource]
     ]

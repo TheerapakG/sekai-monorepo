@@ -1,3 +1,4 @@
 .env
 asset
 __pycache__
+*.json
