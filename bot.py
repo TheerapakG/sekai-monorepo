@@ -13,10 +13,14 @@ from pjsekai.enums.enums import MusicDifficultyType
 from pjsekai.enums.platform import Platform
 from pjsekai.enums.unknown import Unknown
 from async_pjsekai.models.master_data import (
+    CharacterType,
+    GameCharacter,
     Music,
     MusicCategory,
     MusicDifficulty,
     MusicDifficultyType,
+    MusicVocal,
+    OutsideCharacter,
     ReleaseCondition,
     ResourceBox,
     ResourceBoxPurpose,
@@ -122,19 +126,22 @@ class MyClient(discord.Client):
         self.release_conditions_dict: dict[int, ReleaseCondition] = {}
         self.music_resource_boxes_dict: dict[int, ResourceBox] = {}
         self.music_tags_dict: defaultdict[int, set[str]] = defaultdict(set)
+        self.music_vocal_dict: defaultdict[int, list[MusicVocal]] = defaultdict(list)
+        self.game_character_dict: dict[int, GameCharacter] = {}
+        self.outside_character_dict: dict[int, OutsideCharacter] = {}
 
     async def setup_hook(self):
         await self.pjsk_client.start()
         if not any(dict(self.pjsk_client.master_data).values()):
             await self.pjsk_client.update_all()
-        self.prepare_music_data_dicts()
+        self.prepare_data_dicts()
 
     async def setup_guild(self, guild: discord.Guild):
         if "TEST" in os.environ:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
 
-    def prepare_music_data_dicts(self):
+    def prepare_data_dicts(self):
         self.musics_dict.clear()
         if musics := self.pjsk_client.master_data.musics:
             for music in musics:
@@ -182,6 +189,24 @@ class MyClient(discord.Client):
             for tag in tags:
                 if (music_id := tag.music_id) and (music_tag := tag.music_tag):
                     self.music_tags_dict[music_id].add(music_tag)
+
+        self.music_vocal_dict.clear()
+        if music_vocals := self.pjsk_client.master_data.music_vocals:
+            for music_vocal in music_vocals:
+                if music_id := music_vocal.music_id:
+                    self.music_vocal_dict[music_id].append(music_vocal)
+
+        self.game_character_dict.clear()
+        if game_characters := self.pjsk_client.master_data.game_characters:
+            for character in game_characters:
+                if character_id := character.id:
+                    self.game_character_dict[character_id] = character
+
+        self.outside_character_dict.clear()
+        if outside_characters := self.pjsk_client.master_data.outside_characters:
+            for character in outside_characters:
+                if character_id := character.id:
+                    self.outside_character_dict[character_id] = character
 
     async def load_asset(self, asset_bundle_str: str, force: bool = False) -> list[str]:
         if directory := self.pjsk_client.asset_directory:
@@ -284,7 +309,7 @@ class MyClient(discord.Client):
         musics = self.musics_dict.copy()
 
         if await self.pjsk_client.update_all():
-            self.prepare_music_data_dicts()
+            self.prepare_data_dicts()
             new_musics = self.musics_dict.copy()
 
             musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
@@ -433,6 +458,15 @@ class MusicData:
             ]
         )
 
+    async def add_embed_thumbnail(self, embed: discord.Embed):
+        img_path = await client.load_asset(f"music/jacket/{self.asset_bundle_name}")
+
+        if img_path and (directory := client.pjsk_client.asset_directory):
+            filename = Path(img_path[0]).name
+            file = discord.File(directory / img_path[0], filename=filename)
+            embed.set_thumbnail(url=f"attachment://{filename}")
+            return file
+
     async def add_embed_fields(self, embed: discord.Embed, set_title=True):
         categories = self.category_strs()
         categories_str = f"{', '.join(categories)}" if categories else None
@@ -462,13 +496,7 @@ class MusicData:
             name="release condition", value=self.release_condition_str(), inline=False
         )
 
-        img_path = await client.load_asset(f"music/jacket/{self.asset_bundle_name}")
-
-        if img_path and (directory := client.pjsk_client.asset_directory):
-            filename = Path(img_path[0]).name
-            file = discord.File(directory / img_path[0], filename=filename)
-            embed.set_thumbnail(url=f"attachment://{filename}")
-            return file
+        return await self.add_embed_thumbnail(embed)
 
     @classmethod
     def from_music(cls, music: Music):
@@ -654,6 +682,57 @@ class MusicGroup(discord.app_commands.Group):
             out_embed = discord.Embed()
             out_embed.set_footer(text=BOT_VERSION)
             out_embed_file = await music_data.add_embed_fields(out_embed)
+            if out_embed_file:
+                await interaction.followup.send(file=out_embed_file, embed=out_embed)
+            else:
+                await interaction.followup.send(embed=out_embed)
+        else:
+            await interaction.followup.send("Not found!")
+
+    @discord.app_commands.command()
+    async def vocal(self, interaction: discord.Interaction[MyClient], id: int):
+        await interaction.response.defer(thinking=True)
+
+        if (music := interaction.client.musics_dict.get(id)) and (
+            music_vocals := interaction.client.music_vocal_dict.get(id)
+        ):
+            music_data = MusicData.from_music(music)
+            out_embed = discord.Embed()
+            out_embed.title = music.title
+            for music_vocal in music_vocals:
+                character_list = []
+                if characters := music_vocal.characters:
+                    for character in characters:
+                        if character_id := character.character_id:
+                            match character.character_type:
+                                case CharacterType.GAME_CHARACTER:
+                                    if game_character := interaction.client.game_character_dict.get(
+                                        character_id
+                                    ):
+                                        name = f"{game_character.first_name} {game_character.given_name}"
+                                        ruby_name = f"{game_character.first_name_ruby} {game_character.given_name_ruby}"
+                                        character_list.append(f"{name} ({ruby_name})")
+                                    else:
+                                        character_list.append("<unknown>")
+                                case CharacterType.OUTSIDE_CHARACTER:
+                                    if (
+                                        outside_character := interaction.client.outside_character_dict.get(
+                                            character_id
+                                        )
+                                    ) and (name := outside_character.name):
+                                        character_list.append(f"{name}")
+                                    else:
+                                        character_list.append("<unknown>")
+                                case _:
+                                    character_list.append("<unknown>")
+                out_embed.add_field(
+                    name=music_vocal.caption,
+                    value=", ".join(character_list),
+                    inline=False,
+                )
+
+            out_embed.set_footer(text=BOT_VERSION)
+            out_embed_file = await music_data.add_embed_thumbnail(out_embed)
             if out_embed_file:
                 await interaction.followup.send(file=out_embed_file, embed=out_embed)
             else:
