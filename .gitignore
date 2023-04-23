@@ -2,3 +2,4 @@
 asset
 __pycache__
 *.json
+*.msgpack

@@ -190,13 +190,15 @@ class API:
             else plaintext
         )
 
-    def _unpack(self, ciphertext: bytes, enable_decryption: bool = True) -> dict:
-        plaintext: bytes = (
+    def _decrypt(self, ciphertext: bytes, enable_decryption: bool = True):
+        return (
             decrypt(ciphertext, self.key or b"", self.iv or b"")
             if enable_decryption
             else ciphertext
         )
-        return unmsgpack(plaintext)
+
+    def _unpack(self, ciphertext: bytes, enable_decryption: bool = True) -> dict:
+        return unmsgpack(self._decrypt(ciphertext, enable_decryption))
 
     def _generate_headers(self, system_info: Optional[SystemInfo] = None) -> dict:
         app_version: Optional[str]
@@ -213,9 +215,9 @@ class API:
         return {
             "Content-Type": "application/octet-stream",
             "Accept": "application/octet-stream",
-            "X-App-Version": app_version,
-            "X-Data-Version": data_version,
-            "X-Asset-Version": asset_version,
+            **({} if app_version is None else {"X-App-Version": app_version}),
+            **({} if data_version is None else {"X-Data-Version": data_version}),
+            **({} if asset_version is None else {"X-Asset-Version": asset_version}),
             "X-Request-Id": str(uuid4()),
             "X-Unity-Version": self.platform.unity_version,
             **(
@@ -355,7 +357,7 @@ class API:
         finally:
             response.close()
 
-    async def request(
+    async def request_packed(
         self,
         method: str,
         path: str,
@@ -365,7 +367,7 @@ class API:
         api_domain: Optional[str] = None,
         enable_api_encryption: Optional[bool] = None,
         system_info: Optional[SystemInfo] = None,
-    ) -> dict:
+    ):
         if api_domain is None:
             api_domain = self.api_domain
         if enable_api_encryption is None:
@@ -395,7 +397,33 @@ class API:
             self._session_token = response.headers.get(
                 "X-Session-Token", self._session_token
             )
-            return self._unpack(await response.read(), enable_api_encryption)
+            return self._decrypt(await response.read(), enable_api_encryption)
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        params: Optional[dict] = None,
+        data: Optional[dict] = None,
+        headers: Optional[dict] = None,
+        api_domain: Optional[str] = None,
+        enable_api_encryption: Optional[bool] = None,
+        system_info: Optional[SystemInfo] = None,
+    ) -> dict:
+        if enable_api_encryption is None:
+            enable_api_encryption = self.enable_api_encryption
+        return unmsgpack(
+            await self.request_packed(
+                method,
+                path,
+                params,
+                data,
+                headers,
+                api_domain,
+                enable_api_encryption,
+                system_info,
+            )
+        )
 
     async def ping(self) -> dict:
         return await self.request("GET", "")
@@ -413,17 +441,20 @@ class API:
         self._session_token = responseDict["sessionToken"]
         return responseDict
 
-    async def get_master_data(self, data_version: Optional[str] = None) -> dict:
+    async def get_master_data_packed(self, data_version: Optional[str] = None):
         if data_version is None:
-            return await self.request("GET", f"suite/master")
+            return await self.request_packed("GET", f"suite/master")
         else:
-            return await self.request(
+            return await self.request_packed(
                 "GET",
                 f"suite/master",
                 system_info=self.system_info.copy(
                     update={"data_version": data_version}
                 ),
             )
+
+    async def get_master_data(self, data_version: Optional[str] = None) -> dict:
+        return unmsgpack(await self.get_master_data_packed(data_version))
 
     async def get_notices(self) -> dict:
         return await self.request("GET", f"information")

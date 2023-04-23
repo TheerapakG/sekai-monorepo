@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: MIT
 
+from asyncio.locks import Lock
+from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Coroutine, Callable, Optional, List, TypeVar
 from typing_extensions import ParamSpec, Concatenate
@@ -166,24 +168,21 @@ class Client:
                 )
 
     _master_data: MasterData
+    _master_data_lock: Lock
 
     @property
-    def master_data(self) -> MasterData:
-        return self._master_data
+    @asynccontextmanager
+    async def master_data(self):
+        async with self._master_data_lock:
+            yield self._master_data
 
     @master_data.setter
     def master_data(self, new_value: MasterData) -> None:
         self._master_data = new_value
         if self.master_data_file_path is not None:
             self.master_data_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.master_data_file_path.open("w") as f:
-                dump(
-                    new_value,
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=MasterData.encoder,
-                )
+            with self.master_data_file_path.open("wb") as f:
+                f.write(msgpack_converter.dumps(new_value, MasterData))
 
     _user_data: dict
 
@@ -428,14 +427,16 @@ class Client:
                 }
             )
 
+        self._master_data_lock = Lock()
+
         if self.master_data_file_path is not None:
             try:
-                with self.master_data_file_path.open("r") as f:
-                    self._master_data = MasterData(**load(f))
-            except (FileNotFoundError, JSONDecodeError):
-                self.master_data = MasterData()  # type: ignore
+                with self.master_data_file_path.open("rb") as f:
+                    self._master_data = msgpack_converter.loads(f.read(), MasterData)
+            except FileNotFoundError:
+                self.master_data = MasterData.create()
         else:
-            self.master_data = MasterData()  # type: ignore
+            self.master_data = MasterData.create()
 
         self._user_data = {}
         if self.user_data_file_path is not None:
@@ -683,15 +684,17 @@ class Client:
 
     @_auto_session_refresh
     async def update_data(self, data_version: str, app_version_status: str) -> None:
-        response: dict = await self.api_manager.get_master_data(data_version)
-        self.master_data = MasterData(**response)
-        self.system_info = self.system_info.copy(
-            update={
-                "data_version": data_version,
-                "app_version_status": app_version_status,
-            }
-        )
-        self.api_manager.system_info = self.system_info
+        async with self._master_data_lock:
+            del self._master_data
+            response = await self.api_manager.get_master_data_packed(data_version)
+            self.master_data = msgpack_converter.loads(response, MasterData)
+            self.system_info = self.system_info.copy(
+                update={
+                    "data_version": data_version,
+                    "app_version_status": app_version_status,
+                }
+            )
+            self.api_manager.system_info = self.system_info
 
     @_auto_session_refresh
     async def update_asset(self, asset_version: str, asset_hash: str) -> None:
