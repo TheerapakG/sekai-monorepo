@@ -3,12 +3,15 @@
 #
 # SPDX-License-Identifier: MIT
 
+from asyncio.locks import Lock
+from contextlib import asynccontextmanager
 from typing import Optional
-from json import JSONDecodeError, dump, load
 from pathlib import Path
 
 from async_pjsekai.api import API
-from pjsekai.models import AssetBundleInfo
+from async_pjsekai.models.asset_bundle_info import AssetBundleInfo
+
+from .models.converters import msgpack_converter
 
 
 class Asset:
@@ -31,24 +34,21 @@ class Asset:
         return self._hash
 
     _asset_bundle_info: Optional[AssetBundleInfo]
+    _asset_bundle_info_lock: Lock
 
     @property
-    def asset_bundle_info(self) -> Optional[AssetBundleInfo]:
-        return self._asset_bundle_info
+    @asynccontextmanager
+    async def asset_bundle_info(self):
+        async with self._asset_bundle_info_lock:
+            yield self._asset_bundle_info
 
     @asset_bundle_info.setter
     def asset_bundle_info(self, new_value: Optional[AssetBundleInfo]) -> None:
         self._asset_bundle_info = new_value
         if self.path is not None and new_value is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.joinpath("AssetBundleInfo.json").open("w") as f:
-                dump(
-                    new_value,
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=AssetBundleInfo.encoder,
-                )
+            with self.path.joinpath("AssetBundleInfo.msgpack").open("wb") as f:
+                f.write(msgpack_converter.dumps(new_value, AssetBundleInfo))
 
     def __init__(
         self, version: str, hash: str, asset_directory: Optional[str] = None
@@ -63,17 +63,24 @@ class Asset:
         self._version = version
         self._hash = hash
 
+        self._asset_bundle_info_lock = Lock()
+
         if self.path is not None:
             try:
-                with self.path.joinpath("AssetBundleInfo.json").open("r") as f:
-                    self._asset_bundle_info = AssetBundleInfo(**load(f))
-            except (FileNotFoundError, JSONDecodeError):
+                with self.path.joinpath("AssetBundleInfo.msgpack").open("rb") as f:
+                    self._asset_bundle_info = msgpack_converter.loads(
+                        f.read(), AssetBundleInfo
+                    )
+            except FileNotFoundError:
                 self.asset_bundle_info = None
         else:
             self.asset_bundle_info = None
 
     async def get_asset_bundle_info(self, api_manager: API) -> AssetBundleInfo:
-        self.asset_bundle_info = AssetBundleInfo(
-            **await api_manager.get_asset_bundle_info(self._version)
-        )
-        return self.asset_bundle_info
+        async with self._asset_bundle_info_lock:
+            del self._asset_bundle_info
+            self.asset_bundle_info = msgpack_converter.loads(
+                await api_manager.get_asset_bundle_info_packed(self._version),
+                AssetBundleInfo,
+            )
+            return self._asset_bundle_info

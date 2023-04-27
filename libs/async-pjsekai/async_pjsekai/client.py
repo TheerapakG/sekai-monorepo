@@ -25,6 +25,8 @@ from pjsekai.exceptions import *
 from pjsekai.utilities import *
 from pjsekai.live import *
 
+from .models.converters import msgpack_converter
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -208,7 +210,7 @@ class Client:
 
     @property
     @_auth_required
-    def friends(self) -> Optional[List[dict]]:
+    def friends(self) -> Optional[list[dict]]:
         if "userFriends" not in self.user_data:
             return None
         return [
@@ -219,7 +221,7 @@ class Client:
 
     @property
     @_auth_required
-    def received_friend_requests(self) -> Optional[List[dict]]:
+    def received_friend_requests(self) -> Optional[list[dict]]:
         if "userFriends" not in self.user_data:
             return None
         return [
@@ -230,7 +232,7 @@ class Client:
 
     @property
     @_auth_required
-    def sent_friend_requests(self) -> Optional[List[dict]]:
+    def sent_friend_requests(self) -> Optional[list[dict]]:
         if "userFriends" not in self.user_data:
             return None
         return [
@@ -584,7 +586,7 @@ class Client:
     @_auto_session_refresh
     async def check_version(self, bypass_availability: bool = False) -> SystemInfo:
         response: dict = await self.api_manager.get_system_info()
-        app_versions: List[SystemInfo] = [
+        app_versions: list[SystemInfo] = [
             app_version_info
             for app_version_info in (
                 SystemInfo(**app_version) for app_version in response["appVersions"]
@@ -593,7 +595,7 @@ class Client:
             or app_version_info.app_version_status is not AppVersionStatus.NOT_AVAILABLE
         ]
         if len(app_versions) > 0:
-            matching_app_version_info: List[SystemInfo] = [
+            matching_app_version_info: list[SystemInfo] = [
                 app_version_info
                 for app_version_info in app_versions
                 if app_version_info.app_version == self.system_info.app_version
@@ -753,7 +755,7 @@ class Client:
 
     @_auto_update
     @_auto_session_refresh
-    async def get_notices(self) -> List[Information]:
+    async def get_notices(self) -> list[Information]:
         return [
             Information(**information)
             for information in (await self.api_manager.get_notices())["informations"]

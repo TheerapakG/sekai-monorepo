@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from contextlib import asynccontextmanager
-from typing import Dict, List, Optional, Union
+from typing import Optional, Union
 from uuid import uuid4
 
 from aiohttp import ClientSession
@@ -21,12 +21,12 @@ from pjsekai.utilities import encrypt, decrypt, msgpack, unmsgpack
 
 class API:
     platform: Platform
-    domains: Dict[str, str]
+    domains: dict[str, str]
     key: Optional[bytes]
     iv: Optional[bytes]
     jwt_secret: Optional[str]
     system_info: SystemInfo
-    enable_encryption: Dict[str, bool]
+    enable_encryption: dict[str, bool]
     game_version: GameVersion
     server_number: Optional[int]
 
@@ -279,13 +279,13 @@ class API:
             response.raise_for_status()
             return self._unpack(await response.read(), enable_game_version_encryption)
 
-    async def get_asset_bundle_info(
+    async def get_asset_bundle_info_packed(
         self,
         asset_version: Optional[str] = None,
         asset_bundle_info_domain: Optional[str] = None,
         enable_asset_bundle_info_encryption: Optional[bool] = None,
         system_info: Optional[SystemInfo] = None,
-    ) -> dict:
+    ):
         if asset_bundle_info_domain is None:
             asset_bundle_info_domain = self.asset_bundle_info_domain
         if enable_asset_bundle_info_encryption is None:
@@ -310,9 +310,25 @@ class API:
                     raise SessionExpired from e
                 else:
                     raise
-            return self._unpack(
+            return self._decrypt(
                 await response.read(), enable_asset_bundle_info_encryption
             )
+
+    async def get_asset_bundle_info(
+        self,
+        asset_version: Optional[str] = None,
+        asset_bundle_info_domain: Optional[str] = None,
+        enable_asset_bundle_info_encryption: Optional[bool] = None,
+        system_info: Optional[SystemInfo] = None,
+    ) -> dict:
+        return unmsgpack(
+            await self.get_asset_bundle_info_packed(
+                asset_version,
+                asset_bundle_info_domain,
+                enable_asset_bundle_info_encryption,
+                system_info,
+            )
+        )
 
     @asynccontextmanager
     async def download_asset_bundle(
@@ -410,8 +426,6 @@ class API:
         enable_api_encryption: Optional[bool] = None,
         system_info: Optional[SystemInfo] = None,
     ) -> dict:
-        if enable_api_encryption is None:
-            enable_api_encryption = self.enable_api_encryption
         return unmsgpack(
             await self.request_packed(
                 method,
@@ -535,7 +549,7 @@ class API:
         )
 
     async def receive_presents(
-        self, user_id: Union[int, str], present_ids: List[str]
+        self, user_id: Union[int, str], present_ids: list[str]
     ) -> dict:
         return await self.request(
             "POST", f"user/{user_id}/present", data={"presentIds": present_ids}

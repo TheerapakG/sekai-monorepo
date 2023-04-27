@@ -1,0 +1,32 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "async-pjsekai"
+version = "0.0.10.dev0"
+description = "asynchronous pypjsekai."
+license = "MIT"
+authors = [
+    "TheerapakG <theerapakg@gmail.com>",
+]
+
+packages = [
+    { include = "async_pjsekai" }
+]
+
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+pypjsekai = "^0.0.10"
+aiohttp = "^3.8.4"
+cattrs = "^22.2.0"
