@@ -1,6 +1,8 @@
 from collections import defaultdict
 from dataclasses import astuple
+import discord
 from discord.ext.commands import Cog
+import discord.ext.tasks as tasks
 import os
 from pathlib import Path
 from async_pjsekai.client import Client
@@ -10,6 +12,7 @@ from pjsekai.enums.unknown import Unknown
 from async_pjsekai.models.master_data import (
     GameCharacter,
     Music,
+    MusicCategory,
     MusicDifficulty,
     MusicDifficultyType,
     MusicVocal,
@@ -23,7 +26,14 @@ from async_pjsekai.models.master_data import (
 import shutil
 import subprocess
 
-from ..bot.client import BotClient
+from ..bot.client import BOT_VERSION, BotClient
+from ..models.music import MusicData
+
+
+import jycm.helper
+
+jycm.helper.make_json_path_key = lambda l: l
+from jycm.jycm import YouchamaJsonDiffer
 
 import UnityPy
 import UnityPy.config
@@ -42,8 +52,10 @@ def defaulted_export_index(type):
 
 
 class PjskClientCog(Cog):
-    def __init__(self) -> None:
+    def __init__(self, client: BotClient) -> None:
         super().__init__()
+
+        self.client = client
 
         pjsk_path = (
             Path(os.environ["PJSK_DATA"]) if "PJSK_DATA" in os.environ else Path.cwd()
@@ -51,7 +63,7 @@ class PjskClientCog(Cog):
         self.pjsk_client = Client(
             bytes(os.environ["KEY"], encoding="utf-8"),
             bytes(os.environ["IV"], encoding="utf-8"),
-            system_info_file_path=str((pjsk_path / "system-info.json").absolute()),
+            system_info_file_path=str((pjsk_path / "system-info.msgpack").absolute()),
             master_data_file_path=str((pjsk_path / "master-data.msgpack").absolute()),
             user_data_file_path=str((pjsk_path / "user-data.json").absolute()),
             asset_directory=str((pjsk_path / "asset").absolute()),
@@ -78,6 +90,11 @@ class PjskClientCog(Cog):
         if update:
             await self.pjsk_client.update_all()
         await self.prepare_data_dicts()
+        self.diff_musics.start()
+
+    async def cog_unload(self):
+        self.diff_musics.cancel()
+        await self.pjsk_client.close()
 
     async def prepare_data_dicts(self):
         async with self.pjsk_client.master_data as master_data:
@@ -242,6 +259,134 @@ class PjskClientCog(Cog):
                     print(f"updated bundle {asset_bundle_str}")
                     return paths
         return []
+
+    async def add_music_embed_thumbnail(self, music: MusicData, embed: discord.Embed):
+        img_path = await self.load_asset(f"music/jacket/{music.asset_bundle_name}")
+
+        if img_path and (directory := self.pjsk_client.asset_directory):
+            filename = Path(img_path[0]).name
+            file = discord.File(directory / img_path[0], filename=filename)
+            embed.set_thumbnail(url=f"attachment://{filename}")
+            return file
+
+    async def add_music_embed_fields(
+        self, music: MusicData, embed: discord.Embed, set_title=True
+    ):
+        categories = music.category_strs()
+        categories_str = f"{', '.join(categories)}" if categories else None
+        tags = music.tag_long_strs()
+        tag_str = f"{', '.join(tags)}" if tags else None
+
+        if set_title:
+            embed.title = music.title_str()
+        else:
+            embed.add_field(name="title", value=music.title_str())
+
+        embed.add_field(name="ids", value=music.ids_str(), inline=False)
+        embed.add_field(
+            name="lyricist",
+            value=music.lyricist if music.lyricist else "-",
+            inline=False,
+        )
+        embed.add_field(
+            name="composer", value=music.composer if music.composer else "-"
+        )
+        embed.add_field(
+            name="arranger", value=music.arranger if music.arranger else "-"
+        )
+        embed.add_field(name="categories", value=categories_str, inline=False)
+        embed.add_field(name="tags", value=tag_str)
+        embed.add_field(name="publish at", value=music.publish_at_str(), inline=False)
+        embed.add_field(
+            name="difficulties",
+            value="\n".join(music.difficulty_long_strs()),
+            inline=False,
+        )
+        embed.add_field(
+            name="release condition", value=music.release_condition_str(), inline=False
+        )
+
+        return await self.add_music_embed_thumbnail(music, embed)
+
+    def music_data_from_music(self, music: Music):
+        music_categories: list[MusicCategory] = (
+            [
+                category
+                for category in music.categories
+                if isinstance(category, MusicCategory)
+                and category != MusicCategory.IMAGE
+            ]
+            if music.categories
+            else []
+        )
+        music_tags: list[str] = []
+        music_ids: dict[str, int] = {}
+        music_difficulties: list[MusicDifficulty | None] = []
+        if music.id:
+            music_tags = (
+                [tag for tag in self.music_tags_dict[music.id]]
+                if self.music_tags_dict[music.id]
+                else []
+            )
+            music_ids["m"] = music.id
+            if (
+                music_resource_box := self.music_resource_boxes_dict.get(music.id)
+            ) and music_resource_box.id:
+                music_ids["r"] = music_resource_box.id
+            _music_difficulties = self.difficulties_dict.get(music.id, {})
+            music_difficulties = [
+                _music_difficulties.get(difficulty)
+                for difficulty in MusicDifficultyType
+            ]
+
+        return MusicData(
+            title=music.title,
+            ids=music_ids,
+            lyricist=music.lyricist,
+            composer=music.composer,
+            arranger=music.arranger,
+            categories=music_categories,
+            tags=music_tags,
+            publish_at=music.published_at,
+            difficulties=music_difficulties,
+            release_condition=self.release_conditions_dict.get(
+                music.release_condition_id
+            )
+            if music.release_condition_id
+            else None,
+            asset_bundle_name=music.asset_bundle_name,
+        )
+
+    @tasks.loop(seconds=60)
+    async def diff_musics(self):
+        musics = self.musics_dict.copy()
+
+        if await self.pjsk_client.update_all():
+            await self.prepare_data_dicts()
+            new_musics = self.musics_dict.copy()
+
+            musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
+            if "dict:add" in musics_diff:
+                for diff in musics_diff["dict:add"]:
+                    if len(diff["right_path"]) == 1:
+                        music: Music = diff["right"]
+                        music_data = self.music_data_from_music(music)
+                        if announce_channel := self.client.announce_channel:
+                            out_embed = discord.Embed(title=f"new music found!")
+                            out_embed.set_footer(text=BOT_VERSION)
+                            out_embed_file = await self.add_music_embed_fields(
+                                music_data, out_embed, set_title=False
+                            )
+                            if out_embed_file:
+                                await announce_channel.send(
+                                    file=out_embed_file, embed=out_embed
+                                )
+                            else:
+                                await announce_channel.send(embed=out_embed)
+
+    @diff_musics.before_loop
+    async def before_diff_musics(self):
+        await self.client.wait_until_ready()
 
 
 def get_pjsk_client_cog(client: BotClient):

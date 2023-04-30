@@ -4,7 +4,7 @@ import dateutil.parser
 import discord
 from discord.ext.commands import hybrid_group, Cog, Context
 from async_pjsekai.models.master_data import CharacterType
-from typing import Any, Optional, Literal
+from typing import Optional, Literal
 
 from .pjsekai_client import get_pjsk_client_cog
 from ..bot.client import BOT_VERSION, BotClient
@@ -29,7 +29,7 @@ class MusicListEmbedView(discord.ui.View):
                     key=lambda music: music.published_at if music.published_at else -1,
                 ) :
             ]
-            music_datas = [MusicData.from_music(pjsk_client_cog, m) for m in musics]
+            music_datas = [pjsk_client_cog.music_data_from_music(m) for m in musics]
 
             if len(music_datas) == 0:
                 out_embed = discord.Embed(
@@ -43,8 +43,8 @@ class MusicListEmbedView(discord.ui.View):
                 out_embed = discord.Embed(
                     title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({self.index}/{len(music_datas)})"
                 )
-                out_embed_file = await music_datas[self.index - 1].add_embed_fields(
-                    pjsk_client_cog, out_embed, set_title=False
+                out_embed_file = await pjsk_client_cog.add_music_embed_fields(
+                    music_datas[self.index - 1], out_embed, set_title=False
                 )
                 out_embed.set_footer(text=BOT_VERSION)
                 yield "send", {
@@ -123,7 +123,7 @@ class MusicCog(Cog):
                         ) :
                     ]
                     music_datas = [
-                        MusicData.from_music(pjsk_client_cog, m) for m in musics
+                        pjsk_client_cog.music_data_from_music(m) for m in musics
                     ]
                     out_strs = (
                         [m.get_str() for m in music_datas] if music_datas else ["None!"]
@@ -148,7 +148,7 @@ class MusicCog(Cog):
                         ) :
                     ]
                     music_datas = [
-                        MusicData.from_music(pjsk_client_cog, m) for m in musics
+                        pjsk_client_cog.music_data_from_music(m) for m in musics
                     ]
                     out_strs = (
                         [m.get_str() for m in music_datas] if music_datas else ["None!"]
@@ -162,11 +162,11 @@ class MusicCog(Cog):
         if (pjsk_client_cog := get_pjsk_client_cog(ctx.bot)) and (
             music := pjsk_client_cog.musics_dict.get(id)
         ):
-            music_data = MusicData.from_music(pjsk_client_cog, music)
+            music_data = pjsk_client_cog.music_data_from_music(music)
             out_embed = discord.Embed()
             out_embed.set_footer(text=BOT_VERSION)
-            out_embed_file = await music_data.add_embed_fields(
-                pjsk_client_cog, out_embed
+            out_embed_file = await pjsk_client_cog.add_music_embed_fields(
+                music_data, out_embed
             )
             if out_embed_file:
                 await ctx.send(file=out_embed_file, embed=out_embed)
@@ -184,7 +184,7 @@ class MusicCog(Cog):
             and (music := pjsk_client_cog.musics_dict.get(id))
             and (music_vocals := pjsk_client_cog.music_vocal_dict.get(id))
         ):
-            music_data = MusicData.from_music(pjsk_client_cog, music)
+            music_data = pjsk_client_cog.music_data_from_music(music)
             out_embed = discord.Embed()
             out_embed.title = music.title
             for music_vocal in music_vocals:
@@ -220,8 +220,8 @@ class MusicCog(Cog):
                 )
 
             out_embed.set_footer(text=BOT_VERSION)
-            out_embed_file = await music_data.add_embed_thumbnail(
-                pjsk_client_cog, out_embed
+            out_embed_file = await pjsk_client_cog.add_music_embed_thumbnail(
+                music_data, out_embed
             )
             if out_embed_file:
                 await ctx.send(file=out_embed_file, embed=out_embed)

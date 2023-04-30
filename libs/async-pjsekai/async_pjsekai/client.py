@@ -5,16 +5,17 @@
 
 from asyncio.locks import Lock
 from contextlib import asynccontextmanager
+import dataclasses
 from functools import wraps
-from typing import Coroutine, Callable, Optional, List, TypeVar
+from typing import AsyncIterator, Coroutine, Callable, Optional, TypeVar
 from typing_extensions import ParamSpec, Concatenate
 from json import load, dump, JSONDecodeError
 from pathlib import Path
 
 from aiohttp.abc import AbstractCookieJar
 
-from async_pjsekai.models.master_data import *
-from pjsekai.models.system_info import *
+from async_pjsekai.models.master_data import MasterData
+from async_pjsekai.models.system_info import SystemInfo
 from pjsekai.models.asset_bundle_info import *
 from pjsekai.models.game_version import *
 from pjsekai.models.information import *
@@ -150,24 +151,21 @@ class Client:
         return self._credential
 
     _system_info: SystemInfo
+    _system_info_lock: Lock
 
     @property
-    def system_info(self) -> SystemInfo:
-        return self._system_info
+    @asynccontextmanager
+    async def system_info(self):
+        async with self._system_info_lock:
+            yield self._system_info
 
     @system_info.setter
     def system_info(self, new_value: SystemInfo) -> None:
         self._system_info = new_value
         if self.system_info_file_path is not None:
             self.system_info_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.system_info_file_path.open("w") as f:
-                dump(
-                    new_value,
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=SystemInfo.encoder,
-                )
+            with self.system_info_file_path.open("wb") as f:
+                f.write(msgpack_converter.dumps(new_value, SystemInfo))
 
     _master_data: MasterData
     _master_data_lock: Lock
@@ -187,10 +185,13 @@ class Client:
                 f.write(msgpack_converter.dumps(new_value, MasterData))
 
     _user_data: dict
+    _user_data_lock: Lock
 
     @property
-    def user_data(self) -> dict:
-        return self._user_data
+    @asynccontextmanager
+    async def user_data(self):
+        async with self._user_data_lock:
+            yield self._user_data
 
     def _update_user_resources(self, response) -> dict:
         self._user_data = {
@@ -205,41 +206,49 @@ class Client:
         return response
 
     @property
-    def now(self) -> Optional[int]:
-        return self.user_data["now"]
+    @asynccontextmanager
+    async def now(self) -> AsyncIterator[Optional[int]]:
+        async with self.user_data as user_data:
+            yield user_data["now"]
 
     @property
     @_auth_required
-    def friends(self) -> Optional[list[dict]]:
-        if "userFriends" not in self.user_data:
-            return None
-        return [
-            friend
-            for friend in self.user_data["userFriends"]
-            if friend["friendStatus"] == "friend"
-        ]
+    async def friends(self) -> AsyncIterator[Optional[list[dict]]]:
+        async with self.user_data as user_data:
+            if "userFriends" not in user_data:
+                yield None
+            else:
+                yield [
+                    friend
+                    for friend in user_data["userFriends"]
+                    if friend["friendStatus"] == "friend"
+                ]
 
     @property
     @_auth_required
-    def received_friend_requests(self) -> Optional[list[dict]]:
-        if "userFriends" not in self.user_data:
-            return None
-        return [
-            friend
-            for friend in self.user_data["userFriends"]
-            if friend["friendStatus"] == "pending_request"
-        ]
+    async def received_friend_requests(self) -> AsyncIterator[Optional[list[dict]]]:
+        async with self.user_data as user_data:
+            if "userFriends" not in user_data:
+                yield None
+            else:
+                yield [
+                    friend
+                    for friend in user_data["userFriends"]
+                    if friend["friendStatus"] == "pending_request"
+                ]
 
     @property
     @_auth_required
-    def sent_friend_requests(self) -> Optional[list[dict]]:
-        if "userFriends" not in self.user_data:
-            return None
-        return [
-            friend
-            for friend in self.user_data["userFriends"]
-            if friend["friendStatus"] == "sent_request"
-        ]
+    async def sent_friend_requests(self) -> AsyncIterator[Optional[list[dict]]]:
+        async with self.user_data as user_data:
+            if "userFriends" not in user_data:
+                yield None
+            else:
+                yield [
+                    friend
+                    for friend in user_data["userFriends"]
+                    if friend["friendStatus"] == "sent_request"
+                ]
 
     @property
     def key(self) -> Optional[bytes]:
@@ -412,21 +421,22 @@ class Client:
             self._asset_directory = Path(asset_directory)
         self._asset = None
 
+        self._system_info_lock = Lock()
+
         if self.system_info_file_path is not None:
             try:
-                with self.system_info_file_path.open("r") as f:
-                    self._system_info = SystemInfo(**load(f))
-            except (FileNotFoundError, JSONDecodeError):
-                self.system_info = SystemInfo()  # type: ignore
+                with self.system_info_file_path.open("rb") as f:
+                    self._system_info = msgpack_converter.loads(f.read(), SystemInfo)
+            except FileNotFoundError:
+                self.system_info = SystemInfo.create()
         else:
-            self.system_info = SystemInfo()  # type: ignore
+            self.system_info = SystemInfo.create()
         if app_version is not None and app_hash is not None:
-            self.system_info = self.system_info.copy(
-                update={
-                    "app_version": app_version,
-                    "app_hash": app_hash,
-                    "multi_play_version": multi_play_version,
-                }
+            self.system_info = dataclasses.replace(
+                self._system_info,
+                app_version=app_version,
+                app_hash=app_hash,
+                multi_play_version=multi_play_version,
             )
 
         self._master_data_lock = Lock()
@@ -440,6 +450,8 @@ class Client:
         else:
             self.master_data = MasterData.create()
 
+        self._user_data_lock = Lock()
+
         self._user_data = {}
         if self.user_data_file_path is not None:
             try:
@@ -452,13 +464,13 @@ class Client:
         self._user_id = None
         self._credential = None
         if (
-            self.system_info.asset_version is not None
-            and self.system_info.asset_hash is not None
+            self._system_info.asset_version is not None
+            and self._system_info.asset_hash is not None
             and asset_directory is not None
         ):
             self._asset = Asset(
-                self.system_info.asset_version,
-                self.system_info.asset_hash,
+                self._system_info.asset_version,
+                self._system_info.asset_hash,
                 asset_directory,
             )
 
@@ -486,7 +498,7 @@ class Client:
             key=self._key,
             iv=self._iv,
             jwt_secret=self._jwt_secret,
-            system_info=self.system_info,
+            system_info=self._system_info,
             api_domain=self._api_domain or API.DEFAULT_API_DOMAIN,
             asset_bundle_domain=self._asset_bundle_domain,
             asset_bundle_info_domain=self._asset_bundle_info_domain,
@@ -505,7 +517,7 @@ class Client:
         if self.api_manager.key is None or self.api_manager.iv is None:
             return
 
-        if self.system_info.app_version is None or self.system_info.app_hash is None:
+        if self._system_info.app_version is None or self._system_info.app_hash is None:
             await self.update_app()
 
         self.game_version = GameVersion(**await self.api_manager.get_game_version())
@@ -520,117 +532,50 @@ class Client:
         if self._update_all_on_init:
             await self.update_all()
 
+    async def close(self):
+        await self.api_manager.close()
+
     @_auto_update
     @_auto_session_refresh
     async def register(self) -> dict:
-        response: dict = await self.api_manager.register()
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.register()
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     async def login(self, user_id: Union[int, str], credential: str) -> dict:
-        response: dict = await self.api_manager.authenticate(user_id, credential)
-        self._user_id = user_id
-        self._credential = credential
+        async with self.system_info as system_info, self._user_data_lock:
+            response: dict = await self.api_manager.authenticate(user_id, credential)
+            self._user_id = user_id
+            self._credential = credential
 
-        info: SystemInfo = SystemInfo(**response)
+            info: SystemInfo = msgpack_converter.structure(response, SystemInfo)
 
-        if info.app_version_status is AppVersionStatus.MAINTENANCE:
-            raise ServerInMaintenance()
-        elif (
-            info.app_version_status is None
-            or info.app_version_status is AppVersionStatus.NOT_AVAILABLE
-            or self.system_info.app_version != info.app_version
-        ):
-            raise AppUpdateRequired(
-                info.app_version, info.app_hash, info.multi_play_version
-            )
-        else:
-            asset_update_required: bool = (
-                self.system_info.asset_version != info.asset_version
-                or self.asset is None
-                or self.asset.version != info.asset_version
-            )
-            if (
-                info.data_version is not None
-                and info.asset_version is not None
-                and info.asset_hash is not None
-                and self.system_info.data_version != info.data_version
-                and asset_update_required
-            ):
-                raise MultipleUpdatesRequired(info.data_version, info.asset_version, info.asset_hash, info.app_version_status.value)  # type: ignore
+            if info.app_version_status is AppVersionStatus.MAINTENANCE:
+                raise ServerInMaintenance()
             elif (
-                info.asset_version is not None
-                and info.asset_hash is not None
-                and asset_update_required
+                info.app_version_status is None
+                or info.app_version_status is AppVersionStatus.NOT_AVAILABLE
+                or system_info.app_version != info.app_version
             ):
-                raise AssetUpdateRequired(info.asset_version, info.asset_hash)
-            elif (
-                info.data_version is not None
-                and self.system_info.data_version != info.data_version
-            ):
-                raise DataUpdateRequired(info.data_version, info.app_version_status.value)  # type: ignore
-
-        self._user_data = await self.api_manager.get_user_data(user_id)
-        self._update_user_resources(await self.api_manager.get_login_bonus(user_id))
-        return response
-
-    @_auto_update
-    @_auto_session_refresh
-    @_auth_required
-    async def reload_user_data(self, name: Optional[str] = None) -> dict:
-        self._user_data = await self.api_manager.get_user_data(self.user_id, name)  # type: ignore[arg-type]
-        return self.user_data
-
-    @_auto_update
-    @_auto_session_refresh
-    async def check_version(self, bypass_availability: bool = False) -> SystemInfo:
-        response: dict = await self.api_manager.get_system_info()
-        app_versions: list[SystemInfo] = [
-            app_version_info
-            for app_version_info in (
-                SystemInfo(**app_version) for app_version in response["appVersions"]
-            )
-            if bypass_availability
-            or app_version_info.app_version_status is not AppVersionStatus.NOT_AVAILABLE
-        ]
-        if len(app_versions) > 0:
-            matching_app_version_info: list[SystemInfo] = [
-                app_version_info
-                for app_version_info in app_versions
-                if app_version_info.app_version == self.system_info.app_version
-            ]
-            if len(matching_app_version_info) > 0:
-                info: SystemInfo = matching_app_version_info[-1]
-                if info.system_profile != self.system_info.system_profile:
-                    self.system_info = SystemInfo(
-                        system_profile=info.system_profile,
-                        app_version=self.system_info.app_version,
-                        app_hash=self.system_info.app_hash,
-                        multi_play_version=self.system_info.multi_play_version,
-                        app_version_status=info.app_version_status,
-                    )  # type: ignore
-                status: str = "" if info.app_version_status is None else info.app_version_status.value  # type: ignore
+                raise AppUpdateRequired(
+                    info.app_version, info.app_hash, info.multi_play_version
+                )
+            else:
                 asset_update_required: bool = (
-                    self.system_info.asset_version != info.asset_version
+                    system_info.asset_version != info.asset_version
                     or self.asset is None
                     or self.asset.version != info.asset_version
                 )
                 if (
-                    not bypass_availability
-                    and info.app_version_status is AppVersionStatus.MAINTENANCE
-                ):
-                    raise ServerInMaintenance()
-                if (
                     info.data_version is not None
                     and info.asset_version is not None
                     and info.asset_hash is not None
-                    and self.system_info.data_version != info.data_version
+                    and system_info.data_version != info.data_version
                     and asset_update_required
                 ):
-                    raise MultipleUpdatesRequired(
-                        info.data_version, info.asset_version, info.asset_hash, status
-                    )
+                    raise MultipleUpdatesRequired(info.data_version, info.asset_version, info.asset_hash, info.app_version_status.value)  # type: ignore
                 elif (
                     info.asset_version is not None
                     and info.asset_hash is not None
@@ -639,20 +584,99 @@ class Client:
                     raise AssetUpdateRequired(info.asset_version, info.asset_hash)
                 elif (
                     info.data_version is not None
-                    and self.system_info.data_version != info.data_version
+                    and system_info.data_version != info.data_version
                 ):
-                    raise DataUpdateRequired(info.data_version, status)
-                return info
-            elif (
-                app_versions[-1].app_version is not None
-                and app_versions[-1].app_hash is not None
-                and app_versions[-1].multi_play_version is not None
-            ):
-                raise AppUpdateRequired(
-                    app_versions[-1].app_version,
-                    app_versions[-1].app_hash,
-                    app_versions[-1].multi_play_version,
-                )
+                    raise DataUpdateRequired(info.data_version, info.app_version_status.value)  # type: ignore
+
+            self._user_data = await self.api_manager.get_user_data(user_id)
+            self._update_user_resources(await self.api_manager.get_login_bonus(user_id))
+            return response
+
+    @_auto_update
+    @_auto_session_refresh
+    @_auth_required
+    async def reload_user_data(self, name: Optional[str] = None) -> dict:
+        async with self._user_data_lock:
+            user_data = await self.api_manager.get_user_data(self.user_id, name)  # type: ignore[arg-type]
+            self._user_data = user_data
+            return user_data
+
+    @_auto_update
+    @_auto_session_refresh
+    async def check_version(self, bypass_availability: bool = False) -> SystemInfo:
+        response: dict = await self.api_manager.get_system_info()
+        app_versions: list[SystemInfo] = [
+            app_version_info
+            for app_version_info in (
+                msgpack_converter.structure(app_version, SystemInfo)
+                for app_version in response["appVersions"]
+            )
+            if bypass_availability
+            or app_version_info.app_version_status is not AppVersionStatus.NOT_AVAILABLE
+        ]
+        async with self.system_info as system_info:
+            if len(app_versions) > 0:
+                matching_app_version_info: list[SystemInfo] = [
+                    app_version_info
+                    for app_version_info in app_versions
+                    if app_version_info.app_version == system_info.app_version
+                ]
+                if len(matching_app_version_info) > 0:
+                    info: SystemInfo = matching_app_version_info[-1]
+                    if info.system_profile != system_info.system_profile:
+                        self.system_info = SystemInfo(
+                            system_profile=info.system_profile,
+                            app_version=system_info.app_version,
+                            app_hash=system_info.app_hash,
+                            multi_play_version=system_info.multi_play_version,
+                            app_version_status=info.app_version_status,
+                        )
+                    status: str = "" if info.app_version_status is None else info.app_version_status.value  # type: ignore
+                    asset_update_required: bool = (
+                        system_info.asset_version != info.asset_version
+                        or self.asset is None
+                        or self.asset.version != info.asset_version
+                    )
+                    if (
+                        not bypass_availability
+                        and info.app_version_status is AppVersionStatus.MAINTENANCE
+                    ):
+                        raise ServerInMaintenance()
+                    if (
+                        info.data_version is not None
+                        and info.asset_version is not None
+                        and info.asset_hash is not None
+                        and system_info.data_version != info.data_version
+                        and asset_update_required
+                    ):
+                        raise MultipleUpdatesRequired(
+                            info.data_version,
+                            info.asset_version,
+                            info.asset_hash,
+                            status,
+                        )
+                    elif (
+                        info.asset_version is not None
+                        and info.asset_hash is not None
+                        and asset_update_required
+                    ):
+                        raise AssetUpdateRequired(info.asset_version, info.asset_hash)
+                    elif (
+                        info.data_version is not None
+                        and system_info.data_version != info.data_version
+                    ):
+                        raise DataUpdateRequired(info.data_version, status)
+                    return info
+                elif (
+                    app_versions[-1].app_version is not None
+                    and app_versions[-1].app_hash is not None
+                    and app_versions[-1].multi_play_version is not None
+                ):
+                    raise AppUpdateRequired(
+                        app_versions[-1].app_version,
+                        app_versions[-1].app_hash,
+                        app_versions[-1].multi_play_version,
+                    )
         raise NoAvailableVersions()
 
     async def update_app(
@@ -675,43 +699,45 @@ class Client:
                 DataUpdateRequired,
             ):
                 return
-        self.system_info = self.system_info.copy(
-            update={
-                "app_version": app_version,
-                "app_hash": app_hash,
-                "multi_play_version": multi_play_version,
-            }
-        )
-        self.api_manager.system_info = self.system_info
+        async with self.system_info as system_info:
+            new_system_info = dataclasses.replace(
+                system_info,
+                app_version=app_version,
+                app_hash=app_hash,
+                multi_play_version=multi_play_version,
+            )
+            self.system_info = new_system_info
+            self.api_manager.system_info = new_system_info
 
     @_auto_session_refresh
     async def update_data(self, data_version: str, app_version_status: str) -> None:
-        async with self._master_data_lock:
+        async with self._master_data_lock, self.system_info as system_info:
             del self._master_data
             response = await self.api_manager.get_master_data_packed(data_version)
             self.master_data = msgpack_converter.loads(response, MasterData)
-            self.system_info = self.system_info.copy(
-                update={
-                    "data_version": data_version,
-                    "app_version_status": app_version_status,
-                }
+            new_system_info = dataclasses.replace(
+                system_info,
+                data_version=data_version,
+                app_version_status=app_version_status,
             )
-            self.api_manager.system_info = self.system_info
+            self.system_info = new_system_info
+            self.api_manager.system_info = new_system_info
 
     @_auto_session_refresh
     async def update_asset(self, asset_version: str, asset_hash: str) -> None:
-        if self.asset_directory is None:
-            self._asset = Asset(asset_version, asset_hash)
-        else:
-            self._asset = Asset(asset_version, asset_hash, str(self.asset_directory))
-        await self._asset.get_asset_bundle_info(self.api_manager)
-        self.system_info = self.system_info.copy(
-            update={
-                "asset_version": asset_version,
-                "asset_hash": asset_hash,
-            }
-        )
-        self.api_manager.system_info = self.system_info
+        async with self.system_info as system_info:
+            if self.asset_directory is None:
+                self._asset = Asset(asset_version, asset_hash)
+            else:
+                self._asset = Asset(
+                    asset_version, asset_hash, str(self.asset_directory)
+                )
+            await self._asset.get_asset_bundle_info(self.api_manager)
+            new_system_info = dataclasses.replace(
+                system_info, asset_version=asset_version, asset_hash=asset_hash
+            )
+            self.system_info = new_system_info
+            self.api_manager.system_info = new_system_info
 
     async def update_all(self) -> bool:
         try:
@@ -765,11 +791,12 @@ class Client:
     @_auth_required
     @_auto_session_refresh
     async def transfer_out(self, password: str) -> dict:
-        response: dict = await self.api_manager.generate_transfer_code(
-            self.user_id,  # type: ignore[arg-type]
-            password,
-        )
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.generate_transfer_code(
+                self.user_id,  # type: ignore[arg-type]
+                password,
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
@@ -793,84 +820,92 @@ class Client:
     @_auto_session_refresh
     @_auth_required
     async def advance_tutorial(self, unit: Unit = Unit.LN) -> dict:
-        current_tutorial_status: TutorialStatus = TutorialStatus(
-            self.user_data["userTutorial"]["tutorialStatus"]
-        )
-        response: dict = await self.api_manager.set_tutorial_status(
-            self.user_id,  # type: ignore[arg-type]
-            current_tutorial_status.next(unit),
-        )
-        return self._update_user_resources(response)
+        async with self.user_data as user_data, self._user_data_lock:
+            current_tutorial_status: TutorialStatus = TutorialStatus(
+                user_data["userTutorial"]["tutorialStatus"]
+            )
+            response: dict = await self.api_manager.set_tutorial_status(
+                self.user_id,  # type: ignore[arg-type]
+                current_tutorial_status.next(unit),
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def receive_present(self, present_id) -> dict:
-        response: dict = await self.api_manager.receive_presents(
-            self.user_id,  # type: ignore[arg-type]
-            [present_id],
-        )
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.receive_presents(
+                self.user_id,  # type: ignore[arg-type]
+                [present_id],
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def receive_all_presents(self) -> dict:
-        response: dict = await self.api_manager.receive_presents(
-            self.user_id,  # type: ignore[arg-type]
-            [present["presentId"] for present in self.user_data["userPresents"]],
-        )
-        return self._update_user_resources(response)
+        async with self.user_data as user_data:
+            response: dict = await self.api_manager.receive_presents(
+                self.user_id,  # type: ignore[arg-type]
+                [present["presentId"] for present in user_data["userPresents"]],
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def gacha(self, gacha_id: int, gach_behavior_id: int) -> dict:
-        response: dict = await self.api_manager.gacha(
-            self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
-        )
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.gacha(
+                self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def start_solo_live(self, live: SoloLive):
-        response: dict = await self.api_manager.start_solo_live(
-            self.user_id,  # type: ignore[arg-type]
-            live.music_id,
-            live.music_difficulty_id,
-            live.music_vocal_id,
-            live.deck_id,
-            live.boost_count,
-            live.is_auto,
-        )
-        live.start(response["userLiveId"], response["skills"], response["comboCutins"])
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.start_solo_live(
+                self.user_id,  # type: ignore[arg-type]
+                live.music_id,
+                live.music_difficulty_id,
+                live.music_vocal_id,
+                live.deck_id,
+                live.boost_count,
+                live.is_auto,
+            )
+            live.start(
+                response["userLiveId"], response["skills"], response["comboCutins"]
+            )
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def end_solo_live(self, live: SoloLive) -> dict:
-        if not live.is_active or live.live_id is None:
-            raise LiveNotActive
-        if live.life <= 0:
-            raise LiveDead
-        response: dict = await self.api_manager.end_solo_live(
-            self.user_id,  # type: ignore[arg-type]
-            live.live_id,
-            live.score,
-            live.perfect_count,
-            live.great_count,
-            live.good_count,
-            live.bad_count,
-            live.miss_count,
-            live.max_combo,
-            live.life,
-            live.tap_count,
-            live.continue_count,
-        )
-        live.end()
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            if not live.is_active or live.live_id is None:
+                raise LiveNotActive
+            if live.life <= 0:
+                raise LiveDead
+            response: dict = await self.api_manager.end_solo_live(
+                self.user_id,  # type: ignore[arg-type]
+                live.live_id,
+                live.score,
+                live.perfect_count,
+                live.great_count,
+                live.good_count,
+                live.bad_count,
+                live.miss_count,
+                live.max_combo,
+                live.life,
+                live.tap_count,
+                live.continue_count,
+            )
+            live.end()
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
@@ -932,26 +967,30 @@ class Client:
     async def send_friend_request(
         self, user_id: Union[int, str], message: Optional[str] = None
     ) -> None:
-        response: dict = await self.api_manager.send_friend_request(self.user_id, user_id, message)  # type: ignore[arg-type]
-        self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.send_friend_request(self.user_id, user_id, message)  # type: ignore[arg-type]
+            self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def reject_friend_request(self, request_user_id: Union[int, str]) -> None:
-        response: dict = await self.api_manager.reject_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
-        self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.reject_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+            self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def accept_friend_request(self, request_user_id: Union[int, str]) -> dict:
-        response: dict = await self.api_manager.accept_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.accept_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+            return self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def remove_friend(self, friend_user_id: Union[int, str]) -> dict:
-        response: dict = await self.api_manager.remove_friend(self.user_id, friend_user_id)  # type: ignore[arg-type]
-        return self._update_user_resources(response)
+        async with self._user_data_lock:
+            response: dict = await self.api_manager.remove_friend(self.user_id, friend_user_id)  # type: ignore[arg-type]
+            return self._update_user_resources(response)

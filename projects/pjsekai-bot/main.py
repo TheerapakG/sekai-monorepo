@@ -6,18 +6,34 @@ import os
 from bot.bot.client import BotClient
 from bot.cogs.pjsekai_client import PjskClientCog
 from bot.cogs.music import MusicCog
-from bot.tasks.music import diff_musics_task
+
+
+async def async_main():
+    load_dotenv()
+
+    discord.utils.setup_logging(root=False)
+
+    intents = discord.Intents.default()
+    client = BotClient(intents=intents)
+
+    cogs = [PjskClientCog(client), MusicCog()]
+
+    async with client:
+        try:
+            await asyncio.gather(*(client.add_cog(cog) for cog in cogs))
+            await client.start(os.environ["TOKEN"])
+        finally:
+            await client.close()
+            await asyncio.gather(
+                *(client.remove_cog(cog) for cog in client.cogs.keys())
+            )
 
 
 def main():
-    load_dotenv()
-
-    intents = discord.Intents.default()
-    client = BotClient(
-        [PjskClientCog(), MusicCog()], [diff_musics_task], intents=intents
-    )
-
-    client.run(os.environ["TOKEN"])
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == "__main__":

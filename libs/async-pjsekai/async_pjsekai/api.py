@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from contextlib import asynccontextmanager
+import dataclasses
 from typing import Optional, Union
 from uuid import uuid4
 
@@ -11,7 +12,8 @@ from aiohttp import ClientSession
 from aiohttp.http_exceptions import HttpProcessingError
 from jwt import encode as jwtEncode
 
-from pjsekai.models import SystemInfo, GameVersion, AssetOS
+from pjsekai.models import GameVersion, AssetOS
+from async_pjsekai.models.system_info import SystemInfo
 from async_pjsekai.asset_bundle import AssetBundle
 from pjsekai.exceptions import UpdateRequired, SessionExpired, MissingJWTScecret
 from pjsekai.enums.tutorial_status import TutorialStatus
@@ -162,7 +164,7 @@ class API:
         self.key = key
         self.iv = iv
         self.jwt_secret = jwt_secret
-        self.system_info = SystemInfo()  # type: ignore
+        self.system_info = SystemInfo.create()  # type: ignore
         if system_info is not None:
             self.system_info = system_info
         self.api_domain = api_domain
@@ -179,6 +181,9 @@ class API:
 
         self._session_token = None
         self.game_version = GameVersion()  # type: ignore
+
+    async def close(self):
+        await self.session.close()
 
     def _pack(
         self, plaintext_dict: Optional[dict], enable_encryption: bool = True
@@ -462,8 +467,8 @@ class API:
             return await self.request_packed(
                 "GET",
                 f"suite/master",
-                system_info=self.system_info.copy(
-                    update={"data_version": data_version}
+                system_info=dataclasses.replace(
+                    self.system_info, data_version=data_version
                 ),
             )
 
