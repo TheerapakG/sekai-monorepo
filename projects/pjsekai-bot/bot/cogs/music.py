@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023-present TheerapakG <theerapakg@gmail.com>
+#
+# SPDX-License-Identifier: MIT
+
 import bisect
 import datetime
 import dateutil.parser

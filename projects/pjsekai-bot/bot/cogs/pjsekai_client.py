@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023-present TheerapakG <theerapakg@gmail.com>
+#
+# SPDX-License-Identifier: MIT
+
 from collections import defaultdict
 from dataclasses import astuple
 import discord
