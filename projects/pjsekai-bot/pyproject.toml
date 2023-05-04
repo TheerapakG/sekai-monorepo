@@ -5,7 +5,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "pjsekai-bot"
 version = "0.0.1.dev0"
-description = "pjsekai bot."
+description = "pjsekai info discord bot"
+repository = "https://github.com/TheerapakG/sekai-monorepo"
 license = "MIT"
 authors = [
     "TheerapakG <theerapakg@gmail.com>",
