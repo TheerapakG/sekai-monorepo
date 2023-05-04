@@ -7,7 +7,7 @@ import datetime
 import dateutil.parser
 import discord
 from discord.ext.commands import hybrid_group, Cog, Context
-from async_pjsekai.models.master_data import CharacterType
+from async_pjsekai.enums.enums import CharacterType
 from typing import Optional, Literal
 
 from .pjsekai_client import get_pjsk_client_cog

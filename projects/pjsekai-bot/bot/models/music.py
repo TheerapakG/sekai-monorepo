@@ -4,8 +4,8 @@
 
 from dataclasses import dataclass
 import datetime
+from async_pjsekai.enums.enums import MusicCategory
 from async_pjsekai.models.master_data import (
-    MusicCategory,
     MusicDifficulty,
     ReleaseCondition,
 )

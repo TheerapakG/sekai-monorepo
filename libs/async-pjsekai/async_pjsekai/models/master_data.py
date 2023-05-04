@@ -8,7 +8,9 @@ from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Optional, Type, TypeVar, Union
 
-from pjsekai.enums import *
+import async_pjsekai.enums.enums as pjenums
+from async_pjsekai.enums.platform import Platform
+from async_pjsekai.enums.unknown import Unknown
 
 
 @dataclass(slots=True)
@@ -20,21 +22,23 @@ class GameCharacter:
     given_name: Optional[str] = field(default=None)
     first_name_ruby: Optional[str] = field(default=None)
     given_name_ruby: Optional[str] = field(default=None)
-    gender: Optional[Union[Gender, Unknown]] = field(default=None)
+    gender: Optional[Union[pjenums.Gender, Unknown]] = field(default=None)
     height: Optional[float] = field(default=None)
     live2d_height_adjustment: Optional[float] = field(default=None)
-    figure: Optional[Union[Figure, Unknown]] = field(default=None)
-    breast_size: Optional[Union[BreastSize, Unknown]] = field(default=None)
+    figure: Optional[Union[pjenums.Figure, Unknown]] = field(default=None)
+    breast_size: Optional[Union[pjenums.BreastSize, Unknown]] = field(default=None)
     model_name: Optional[str] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
-    support_unit_type: Optional[Union[SupportUnitType, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
+    support_unit_type: Optional[Union[pjenums.SupportUnitType, Unknown]] = field(
+        default=None
+    )
 
 
 @dataclass(slots=True)
 class GameCharacterUnit:
     id: Optional[int] = field(default=None)
     game_character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     color_code: Optional[str] = field(default=None)
     skin_color_code: Optional[str] = field(default=None)
     skin_shadow_color_code1: Optional[str] = field(default=None)
@@ -51,9 +55,11 @@ class OutsideCharacter:
 @dataclass(slots=True)
 class Character3d:
     id: Optional[int] = field(default=None)
-    character_type: Optional[Union[CharacterType, Unknown]] = field(default=None)
+    character_type: Optional[Union[pjenums.CharacterType, Unknown]] = field(
+        default=None
+    )
     character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     head_costume3d_id: Optional[int] = field(default=None)
     hair_costume3d_id: Optional[int] = field(default=None)
@@ -63,9 +69,11 @@ class Character3d:
 @dataclass(slots=True)
 class Character2d:
     id: Optional[int] = field(default=None)
-    character_type: Optional[Union[CharacterType, Unknown]] = field(default=None)
+    character_type: Optional[Union[pjenums.CharacterType, Unknown]] = field(
+        default=None
+    )
     character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     asset_name: Optional[str] = field(default=None)
 
 
@@ -98,7 +106,7 @@ class Bond:
 class Live2d:
     id: Optional[int] = field(default=None)
     character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     motion: Optional[str] = field(default=None)
     expression: Optional[str] = field(default=None)
@@ -117,7 +125,7 @@ class BondsRankUpLive2d(Live2d):
 
 @dataclass(slots=True)
 class UnitProfile:
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     unit_name: Optional[str] = field(default=None)
     seq: Optional[int] = field(default=None)
     profile_sentence: Optional[str] = field(default=None)
@@ -130,13 +138,15 @@ class ActionSet:
     area_id: Optional[int] = field(default=None)
     script_id: Optional[str] = field(default=None)
     character_ids: Optional[list[int]] = field(default=None)
-    archive_display_type: Optional[Union[ArchiveDisplayType, Unknown]] = field(
+    archive_display_type: Optional[Union[pjenums.ArchiveDisplayType, Unknown]] = field(
         default=None
     )
     archive_published_at: Optional[datetime] = field(default=None)
     release_condition_id: Optional[datetime] = field(default=None)
     scenario_id: Optional[str] = field(default=None)
-    action_set_type: Optional[Union[ActionSetType, Unknown]] = field(default=None)
+    action_set_type: Optional[Union[pjenums.ActionSetType, Unknown]] = field(
+        default=None
+    )
     special_season_id: Optional[int] = field(default=None)
 
 
@@ -144,8 +154,8 @@ class ActionSet:
 class Area:
     id: Optional[int] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
-    area_type: Optional[Union[AreaType, Unknown]] = field(default=None)
-    view_type: Optional[Union[ViewType, Unknown]] = field(default=None)
+    area_type: Optional[Union[pjenums.AreaType, Unknown]] = field(default=None)
+    view_type: Optional[Union[pjenums.ViewType, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
     label: Optional[str] = field(default=None)
@@ -168,7 +178,7 @@ class MobCharacter:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
-    gender: Optional[Union[Gender, Unknown]] = field(default=None)
+    gender: Optional[Union[pjenums.Gender, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
@@ -191,7 +201,7 @@ class CardParameter:
     id: Optional[int] = field(default=None)
     card_id: Optional[int] = field(default=None)
     card_level: Optional[int] = field(default=None)
-    card_parameter_type: Optional[Union[CardParameterType, Unknown]] = field(
+    card_parameter_type: Optional[Union[pjenums.CardParameterType, Unknown]] = field(
         default=None
     )
     power: Optional[int] = field(default=None)
@@ -200,7 +210,7 @@ class CardParameter:
 @dataclass(slots=True)
 class Cost:
     resource_id: Optional[int] = field(default=None)
-    resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(default=None)
     resource_level: Optional[int] = field(default=None)
     quantity: Optional[int] = field(default=None)
 
@@ -225,12 +235,14 @@ class Card:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     character_id: Optional[int] = field(default=None)
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     special_training_power1_bonus_fixed: Optional[int] = field(default=None)
     special_training_power2_bonus_fixed: Optional[int] = field(default=None)
     special_training_power3_bonus_fixed: Optional[int] = field(default=None)
-    attr: Optional[Union[CardAttr, Unknown]] = field(default=None)
-    support_unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    attr: Optional[Union[pjenums.CardAttr, Unknown]] = field(default=None)
+    support_unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     skill_id: Optional[int] = field(default=None)
     card_skill_name: Optional[str] = field(default=None)
     prefix: Optional[str] = field(default=None)
@@ -244,7 +256,7 @@ class Card:
     master_lesson_achieve_resources: Optional[
         list[MasterLessonAchieveResource]
     ] = field(default=None)
-    archive_display_type: Optional[Union[ArchiveDisplayType, Unknown]] = field(
+    archive_display_type: Optional[Union[pjenums.ArchiveDisplayType, Unknown]] = field(
         default=None
     )
 
@@ -255,7 +267,7 @@ class SkillEffectDetail:
     level: Optional[int] = field(default=None)
     activate_effect_duration: Optional[float] = field(default=None)
     activate_effect_value_type: Optional[
-        Union[ActivateEffectValueType, Unknown]
+        Union[pjenums.ActivateEffectValueType, Unknown]
     ] = field(default=None)
     activate_effect_value: Optional[int] = field(default=None)
 
@@ -264,15 +276,17 @@ class SkillEffectDetail:
 class SkillEnhanceCondition:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
 class SkillEnhance:
     id: Optional[int] = field(default=None)
-    skill_enhance_type: Optional[Union[SkillEnhanceType, Unknown]] = field(default=None)
+    skill_enhance_type: Optional[Union[pjenums.SkillEnhanceType, Unknown]] = field(
+        default=None
+    )
     activate_effect_value_type: Optional[
-        Union[ActivateEffectValueType, Unknown]
+        Union[pjenums.ActivateEffectValueType, Unknown]
     ] = field(default=None)
     activate_effect_value: Optional[int] = field(default=None)
     skill_enhance_condition: Optional[SkillEnhanceCondition] = field(default=None)
@@ -281,13 +295,15 @@ class SkillEnhance:
 @dataclass(slots=True)
 class SkillEffect:
     id: Optional[int] = field(default=None)
-    skill_effect_type: Optional[Union[SkillEffectType, Unknown]] = field(default=None)
-    activate_notes_judgment_type: Optional[Union[IngameNoteJudgeType, Unknown]] = field(
+    skill_effect_type: Optional[Union[pjenums.SkillEffectType, Unknown]] = field(
         default=None
     )
+    activate_notes_judgment_type: Optional[
+        Union[pjenums.IngameNoteJudgeType, Unknown]
+    ] = field(default=None)
     skill_effect_details: Optional[list[SkillEffectDetail]] = field(default=None)
     activate_life: Optional[int] = field(default=None)
-    condition_type: Optional[Union[SkillEffectConditionType, Unknown]] = field(
+    condition_type: Optional[Union[pjenums.SkillEffectConditionType, Unknown]] = field(
         default=None
     )
     skill_enhance: Optional[SkillEnhance] = field(default=None)
@@ -317,14 +333,16 @@ class CardEpisode:
     power3_bonus_fixed: Optional[int] = field(default=None)
     reward_resource_box_ids: Optional[list[int]] = field(default=None)
     costs: Optional[list[Cost]] = field(default=None)
-    card_episode_part_type: Optional[Union[CardEpisodePartType, Unknown]] = field(
-        default=None
-    )
+    card_episode_part_type: Optional[
+        Union[pjenums.CardEpisodePartType, Unknown]
+    ] = field(default=None)
 
 
 @dataclass(slots=True)
 class CardRarity:
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     seq: Optional[int] = field(default=None)
     max_level: Optional[int] = field(default=None)
     max_skill_level: Optional[int] = field(default=None)
@@ -343,7 +361,9 @@ class Music:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
-    categories: Optional[list[Union[MusicCategory, Unknown]]] = field(default=None)
+    categories: Optional[list[Union[pjenums.MusicCategory, Unknown]]] = field(
+        default=None
+    )
     title: Optional[str] = field(default=None)
     pronunciation: Optional[str] = field(default=None)
     lyricist: Optional[str] = field(default=None)
@@ -371,7 +391,7 @@ class MusicTag:
 class MusicDifficulty:
     id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
-    music_difficulty: Optional[Union[MusicDifficultyType, Unknown]] = field(
+    music_difficulty: Optional[Union[pjenums.MusicDifficultyType, Unknown]] = field(
         default=None
     )
     play_level: Optional[int] = field(default=None)
@@ -384,7 +404,9 @@ class Character:
     id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
     music_vocal_id: Optional[int] = field(default=None)
-    character_type: Optional[Union[CharacterType, Unknown]] = field(default=None)
+    character_type: Optional[Union[pjenums.CharacterType, Unknown]] = field(
+        default=None
+    )
     character_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
 
@@ -393,7 +415,9 @@ class Character:
 class MusicVocal:
     id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
-    music_vocal_type: Optional[Union[MusicVocalType, Unknown]] = field(default=None)
+    music_vocal_type: Optional[Union[pjenums.MusicVocalType, Unknown]] = field(
+        default=None
+    )
     seq: Optional[int] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
     caption: Optional[str] = field(default=None)
@@ -401,7 +425,7 @@ class MusicVocal:
     asset_bundle_name: Optional[str] = field(default=None)
     archive_published_at: Optional[datetime] = field(default=None)
     special_season_id: Optional[int] = field(default=None)
-    archive_display_type: Optional[Union[ArchiveDisplayType, Unknown]] = field(
+    archive_display_type: Optional[Union[pjenums.ArchiveDisplayType, Unknown]] = field(
         default=None
     )
 
@@ -410,37 +434,41 @@ class MusicVocal:
 class MusicDanceMember:
     id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
-    default_music_type: Optional[Union[DefaultMusicType, Unknown]] = field(default=None)
+    default_music_type: Optional[Union[pjenums.DefaultMusicType, Unknown]] = field(
+        default=None
+    )
     character_id1: Optional[int] = field(default=None)
-    unit1: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit1: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     character_id2: Optional[int] = field(default=None)
-    unit2: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit2: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     character_id3: Optional[int] = field(default=None)
-    unit3: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit3: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     character_id4: Optional[int] = field(default=None)
-    unit4: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit4: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     character_id5: Optional[int] = field(default=None)
-    unit5: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit5: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
 class MusicAchievement:
     id: Optional[int] = field(default=None)
-    music_achievement_type: Optional[Union[MusicAchievementType, Unknown]] = field(
-        default=None
-    )
+    music_achievement_type: Optional[
+        Union[pjenums.MusicAchievementType, Unknown]
+    ] = field(default=None)
     music_achievement_type_value: Optional[str] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
-    music_difficulty_type: Optional[Union[MusicDifficultyType, Unknown]] = field(
-        default=None
-    )
+    music_difficulty_type: Optional[
+        Union[pjenums.MusicDifficultyType, Unknown]
+    ] = field(default=None)
 
 
 @dataclass(slots=True)
 class MusicVideoCharacter:
     id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
-    default_music_type: Optional[Union[DefaultMusicType, Unknown]] = field(default=None)
+    default_music_type: Optional[Union[pjenums.DefaultMusicType, Unknown]] = field(
+        default=None
+    )
     game_character_unit_id: Optional[int] = field(default=None)
     dance_priority: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
@@ -452,7 +480,9 @@ class MusicAssetVariant:
     id: Optional[int] = field(default=None)
     music_vocal_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    music_asset_type: Optional[Union[MusicAssetType, Unknown]] = field(default=None)
+    music_asset_type: Optional[Union[pjenums.MusicAssetType, Unknown]] = field(
+        default=None
+    )
     asset_bundle_name: Optional[str] = field(default=None)
 
 
@@ -477,9 +507,9 @@ class EpisodeMusicVideoCostume:
 class ReleaseCondition:
     id: Optional[int] = field(default=None)
     sentence: Optional[str] = field(default=None)
-    release_condition_type: Optional[Union[ReleaseConditionType, Unknown]] = field(
-        default=None
-    )
+    release_condition_type: Optional[
+        Union[pjenums.ReleaseConditionType, Unknown]
+    ] = field(default=None)
     release_condition_type_level: Optional[int] = field(default=None)
     release_condition_type_id: Optional[int] = field(default=None)
     release_condition_type_quantity: Optional[int] = field(default=None)
@@ -487,7 +517,7 @@ class ReleaseCondition:
 
 @dataclass(slots=True)
 class PlayLevelScore:
-    live_type: Optional[Union[LiveType, Unknown]] = field(default=None)
+    live_type: Optional[Union[pjenums.LiveType, Unknown]] = field(default=None)
     play_level: Optional[int] = field(default=None)
     s: Optional[int] = field(default=None)
     a: Optional[int] = field(default=None)
@@ -506,7 +536,9 @@ class IngameCombo:
 @dataclass(slots=True)
 class IngameNote:
     id: Optional[int] = field(default=None)
-    ingame_note_type: Optional[Union[IngameNoteType, Unknown]] = field(default=None)
+    ingame_note_type: Optional[Union[pjenums.IngameNoteType, Unknown]] = field(
+        default=None
+    )
     score_coefficient: Optional[float] = field(default=None)
     damage_bad: Optional[int] = field(default=None)
     damage_miss: Optional[int] = field(default=None)
@@ -515,9 +547,9 @@ class IngameNote:
 @dataclass(slots=True)
 class IngameNoteJudge:
     id: Optional[int] = field(default=None)
-    ingame_note_jadge_type: Optional[Union[IngameNoteJudgeType, Unknown]] = field(
-        default=None
-    )
+    ingame_note_jadge_type: Optional[
+        Union[pjenums.IngameNoteJudgeType, Unknown]
+    ] = field(default=None)
     score_coefficient: Optional[float] = field(default=None)
     damage: Optional[int] = field(default=None)
 
@@ -531,7 +563,7 @@ class IngamePlayLevel:
 @dataclass(slots=True)
 class IngameCutin:
     id: Optional[int] = field(default=None)
-    music_difficulty: Optional[Union[MusicDifficultyType, Unknown]] = field(
+    music_difficulty: Optional[Union[pjenums.MusicDifficultyType, Unknown]] = field(
         default=None
     )
     combo: Optional[int] = field(default=None)
@@ -541,7 +573,7 @@ class IngameCutin:
 class IngameCutinCharacter:
     id: Optional[int] = field(default=None)
     ingame_cutin_character_type: Optional[
-        Union[IngameCutinCharacterType, Unknown]
+        Union[pjenums.IngameCutinCharacterType, Unknown]
     ] = field(default=None)
     priority: Optional[int] = field(default=None)
     game_character_unit_id1: Optional[int] = field(default=None)
@@ -554,7 +586,9 @@ class IngameCutinCharacter:
 @dataclass(slots=True)
 class IngameJudgeFrame:
     id: Optional[int] = field(default=None)
-    ingame_note_type: Optional[Union[IngameNoteType, Unknown]] = field(default=None)
+    ingame_note_type: Optional[Union[pjenums.IngameNoteType, Unknown]] = field(
+        default=None
+    )
     perfect: Optional[float] = field(default=None)
     great: Optional[float] = field(default=None)
     good: Optional[float] = field(default=None)
@@ -572,10 +606,10 @@ class IngameJudgeFrame:
 @dataclass(slots=True)
 class IngameNoteJudgeTechnicalScore:
     id: Optional[int] = field(default=None)
-    live_type: Optional[Union[LiveType, Unknown]] = field(default=None)
-    ingame_note_jadge_type: Optional[Union[IngameNoteJudgeType, Unknown]] = field(
-        default=None
-    )
+    live_type: Optional[Union[pjenums.LiveType, Unknown]] = field(default=None)
+    ingame_note_jadge_type: Optional[
+        Union[pjenums.IngameNoteJudgeType, Unknown]
+    ] = field(default=None)
     score: Optional[int] = field(default=None)
 
 
@@ -583,7 +617,7 @@ class IngameNoteJudgeTechnicalScore:
 class Shop:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    shop_type: Optional[Union[ShopType, Unknown]] = field(default=None)
+    shop_type: Optional[Union[pjenums.ShopType, Unknown]] = field(default=None)
     area_id: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
@@ -641,8 +675,8 @@ class AreaItem:
 class AreaItemLevel:
     area_item_id: Optional[int] = field(default=None)
     level: Optional[int] = field(default=None)
-    targetunit: Optional[Union[Unit, Unknown]] = field(default=None)
-    target_card_attr: Optional[Union[CardAttr, Unknown]] = field(default=None)
+    targetunit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
+    target_card_attr: Optional[Union[pjenums.CardAttr, Unknown]] = field(default=None)
     target_game_character_id: Optional[int] = field(default=None)
     power1_bonus_rate: Optional[float] = field(default=None)
     power1_all_match_bonus_rate: Optional[float] = field(default=None)
@@ -659,15 +693,17 @@ class Material:
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     flavor_text: Optional[str] = field(default=None)
-    material_type: Optional[Union[MaterialType, Unknown]] = field(default=None)
+    material_type: Optional[Union[pjenums.MaterialType, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
 class GachaCardRarityRate:
     id: Optional[int] = field(default=None)
     group_id: Optional[int] = field(default=None)
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
-    lottery_type: Optional[Union[LotteryType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
+    lottery_type: Optional[Union[pjenums.LotteryType, Unknown]] = field(default=None)
     rate: Optional[float] = field(default=None)
 
 
@@ -686,10 +722,12 @@ class GachaBehavior:
     gacha_id: Optional[int] = field(default=None)
     group_id: Optional[int] = field(default=None)
     priority: Optional[int] = field(default=None)
-    gacha_behavior_type: Optional[Union[GachaBehaviorType, Unknown]] = field(
+    gacha_behavior_type: Optional[Union[pjenums.GachaBehaviorType, Unknown]] = field(
         default=None
     )
-    cost_resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    cost_resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(
+        default=None
+    )
     cost_resource_quantity: Optional[int] = field(default=None)
     spin_count: Optional[int] = field(default=None)
     execute_limit: Optional[int] = field(default=None)
@@ -702,7 +740,9 @@ class GachaPickup:
     id: Optional[int] = field(default=None)
     gacha_id: Optional[int] = field(default=None)
     card_id: Optional[int] = field(default=None)
-    gacha_pickup_type: Optional[Union[GachaPickupType, Unknown]] = field(default=None)
+    gacha_pickup_type: Optional[Union[pjenums.GachaPickupType, Unknown]] = field(
+        default=None
+    )
 
 
 @dataclass(slots=True)
@@ -715,7 +755,7 @@ class GachaInformation:
 @dataclass(slots=True)
 class Gacha:
     id: Optional[int] = field(default=None)
-    gacha_type: Optional[Union[GachaType, Unknown]] = field(default=None)
+    gacha_type: Optional[Union[pjenums.GachaType, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     seq: Optional[int] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
@@ -746,7 +786,7 @@ class GachaBonus:
 @dataclass(slots=True)
 class GachaBonusPoint:
     id: Optional[int] = field(default=None)
-    resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(default=None)
     point: Optional[float] = field(default=None)
 
 
@@ -780,7 +820,7 @@ class SkillPracticeTicket(PracticeTicket):
 @dataclass(slots=True)
 class Level:
     id: Optional[int] = field(default=None)
-    level_type: Optional[Union[LevelType, Unknown]] = field(default=None)
+    level_type: Optional[Union[pjenums.LevelType, Unknown]] = field(default=None)
     level: Optional[int] = field(default=None)
     total_exp: Optional[int] = field(default=None)
 
@@ -798,9 +838,9 @@ class Episode:
 
 @dataclass(slots=True)
 class UnitStoryEpisode(Episode):
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     chapter_no: Optional[int] = field(default=None)
-    unit_episode_category: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit_episode_category: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     episode_no_label: Optional[str] = field(default=None)
     limited_release_start_at: Optional[datetime] = field(default=None)
     limited_release_end_at: Optional[datetime] = field(default=None)
@@ -810,7 +850,7 @@ class UnitStoryEpisode(Episode):
 @dataclass(slots=True)
 class Chapter:
     id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     chapter_no: Optional[int] = field(default=None)
     title: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
@@ -819,7 +859,7 @@ class Chapter:
 
 @dataclass(slots=True)
 class UnitStory:
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     seq: Optional[int] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     chapters: Optional[list[Chapter]] = field(default=None)
@@ -855,7 +895,7 @@ class Config:
 class ClientConfig:
     id: Optional[int] = field(default=None)
     value: Optional[str] = field(default=None)
-    type: Optional[Union[ClientConfigType, Unknown]] = field(default=None)
+    type: Optional[Union[pjenums.ClientConfigType, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
@@ -869,17 +909,21 @@ class Costume3d:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     costume3d_group_id: Optional[int] = field(default=None)
-    costume3d_type: Optional[Union[Costume3dType, Unknown]] = field(default=None)
+    costume3d_type: Optional[Union[pjenums.Costume3dType, Unknown]] = field(
+        default=None
+    )
     name: Optional[str] = field(default=None)
-    part_type: Optional[Union[PartType, Unknown]] = field(default=None)
+    part_type: Optional[Union[pjenums.PartType, Unknown]] = field(default=None)
     color_id: Optional[int] = field(default=None)
     color_name: Optional[str] = field(default=None)
     character_id: Optional[int] = field(default=None)
-    costume3d_rarity: Optional[Union[Costume3dRarity, Unknown]] = field(default=None)
+    costume3d_rarity: Optional[Union[pjenums.Costume3dRarity, Unknown]] = field(
+        default=None
+    )
     how_to_obtain: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     designer: Optional[str] = field(default=None)
-    archive_display_type: Optional[Union[ArchiveDisplayType, Unknown]] = field(
+    archive_display_type: Optional[Union[pjenums.ArchiveDisplayType, Unknown]] = field(
         default=None
     )
     archive_published_at: Optional[datetime] = field(default=None)
@@ -890,9 +934,9 @@ class Costume3d:
 class Costume3dModel:
     id: Optional[int] = field(default=None)
     costume3d_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     head_costume3d_asset_bundle_type: Optional[
-        Union[HeadCostume3dAssetBundleType, Unknown]
+        Union[pjenums.HeadCostume3dAssetBundleType, Unknown]
     ] = field(default=None)
     thumbnail_asset_bundle_name: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
@@ -905,7 +949,7 @@ class Costume3dModelAvailablePattern:
     id: Optional[int] = field(default=None)
     head_costume3d_id: Optional[int] = field(default=None)
     hair_costume3d_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     is_default: Optional[bool] = field(default=None)
 
 
@@ -913,7 +957,7 @@ class Costume3dModelAvailablePattern:
 class GameCharacterUnit3dMotion:
     id: Optional[int] = field(default=None)
     game_character_unit_id: Optional[int] = field(default=None)
-    motion_type: Optional[Union[MotionType, Unknown]] = field(default=None)
+    motion_type: Optional[Union[pjenums.MotionType, Unknown]] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
 
 
@@ -937,7 +981,7 @@ class Costume2dGroup:
 @dataclass(slots=True)
 class Topic:
     id: Optional[int] = field(default=None)
-    topic_type: Optional[Union[TopicType, Unknown]] = field(default=None)
+    topic_type: Optional[Union[pjenums.TopicType, Unknown]] = field(default=None)
     topic_type_id: Optional[int] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
 
@@ -952,7 +996,7 @@ class LiveStage:
 @dataclass(slots=True)
 class Stamp:
     id: Optional[int] = field(default=None)
-    stamp_type: Optional[Union[StampType, Unknown]] = field(default=None)
+    stamp_type: Optional[Union[pjenums.StampType, Unknown]] = field(default=None)
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
@@ -961,7 +1005,7 @@ class Stamp:
     game_character_unit_id: Optional[int] = field(default=None)
     archive_published_at: Optional[datetime] = field(default=None)
     description: Optional[str] = field(default=None)
-    archive_display_type: Optional[Union[ArchiveDisplayType, Unknown]] = field(
+    archive_display_type: Optional[Union[pjenums.ArchiveDisplayType, Unknown]] = field(
         default=None
     )
 
@@ -972,10 +1016,12 @@ class MultiLiveLobby:
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     photon_lobby_name: Optional[str] = field(default=None)
-    matching_logic: Optional[Union[MatchingLogic, Unknown]] = field(default=None)
+    matching_logic: Optional[Union[pjenums.MatchingLogic, Unknown]] = field(
+        default=None
+    )
     total_power: Optional[int] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
-    multi_live_lobby_type: Optional[Union[MultiLiveLobbyType, Unknown]] = field(
+    multi_live_lobby_type: Optional[Union[pjenums.MultiLiveLobbyType, Unknown]] = field(
         default=None
     )
 
@@ -983,14 +1029,18 @@ class MultiLiveLobby:
 @dataclass(slots=True)
 class MasterLessonCost(Cost):
     id: Optional[int] = field(default=None)
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     master_rank: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
 
 
 @dataclass(slots=True)
 class MasterLesson:
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     master_rank: Optional[int] = field(default=None)
     power1_bonus_fixed: Optional[int] = field(default=None)
     power2_bonus_fixed: Optional[int] = field(default=None)
@@ -1012,7 +1062,9 @@ class MasterLessonReward:
 
 @dataclass(slots=True)
 class CardExchangeResource:
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     seq: Optional[int] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
 
@@ -1030,7 +1082,7 @@ class MaterialExchange:
     material_exchange_summary_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
-    refresh_cycle: Optional[Union[RefreshCycle, Unknown]] = field(default=None)
+    refresh_cycle: Optional[Union[pjenums.RefreshCycle, Unknown]] = field(default=None)
     costs: Optional[list[MaterialExchangeCost]] = field(default=None)
     exchange_limit: Optional[int] = field(default=None)
     start_at: Optional[datetime] = field(default=None)
@@ -1040,10 +1092,12 @@ class MaterialExchange:
 class MaterialExchangeSummary:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    exchange_category: Optional[Union[ExchangeCategory, Unknown]] = field(default=None)
-    material_exchange_type: Optional[Union[MaterialExchangeType, Unknown]] = field(
+    exchange_category: Optional[Union[pjenums.ExchangeCategory, Unknown]] = field(
         default=None
     )
+    material_exchange_type: Optional[
+        Union[pjenums.MaterialExchangeType, Unknown]
+    ] = field(default=None)
     name: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     start_at: Optional[datetime] = field(default=None)
@@ -1076,17 +1130,17 @@ class BillingProduct:
 class BillingShopItem:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    billing_shop_item_type: Optional[Union[BillingShopItemType, Unknown]] = field(
-        default=None
-    )
+    billing_shop_item_type: Optional[
+        Union[pjenums.BillingShopItemType, Unknown]
+    ] = field(default=None)
     billing_product_group_id: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     description: Optional[str] = field(default=None)
-    billable_limit_type: Optional[Union[BillableLimitType, Unknown]] = field(
+    billable_limit_type: Optional[Union[pjenums.BillableLimitType, Unknown]] = field(
         default=None
     )
     billable_limit_reset_interval_type: Optional[
-        Union[BillableLimitResetIntervalType, Unknown]
+        Union[pjenums.BillableLimitResetIntervalType, Unknown]
     ] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
@@ -1096,7 +1150,9 @@ class BillingShopItem:
     end_at: Optional[datetime] = field(default=None)
     start_at: Optional[datetime] = field(default=None)
     billable_limit_reset_interval_value: Optional[int] = field(default=None)
-    purchase_option: Optional[Union[PurchaseOption, Unknown]] = field(default=None)
+    purchase_option: Optional[Union[pjenums.PurchaseOption, Unknown]] = field(
+        default=None
+    )
 
 
 @dataclass(slots=True)
@@ -1121,7 +1177,7 @@ class ColorfulPass:
 class JewelBehavior:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    jewel_behavior_type: Optional[Union[JewelBehaviorType, Unknown]] = field(
+    jewel_behavior_type: Optional[Union[pjenums.JewelBehaviorType, Unknown]] = field(
         default=None
     )
     jewel_behavior_type_quantity: Optional[int] = field(default=None)
@@ -1153,9 +1209,9 @@ class CharacterRank:
 @dataclass(slots=True)
 class CharacterMissionV2:
     id: Optional[int] = field(default=None)
-    character_mission_type: Optional[Union[CharacterMissionType, Unknown]] = field(
-        default=None
-    )
+    character_mission_type: Optional[
+        Union[pjenums.CharacterMissionType, Unknown]
+    ] = field(default=None)
     character_id: Optional[int] = field(default=None)
     parameter_group_id: Optional[int] = field(default=None)
     sentence: Optional[str] = field(default=None)
@@ -1174,12 +1230,12 @@ class CharacterMissionV2ParameterGroup:
 @dataclass(slots=True)
 class CharacterMissionV2AreaItem:
     id: Optional[int] = field(default=None)
-    character_mission_type: Optional[Union[CharacterMissionType, Unknown]] = field(
-        default=None
-    )
+    character_mission_type: Optional[
+        Union[pjenums.CharacterMissionType, Unknown]
+    ] = field(default=None)
     area_item_id: Optional[int] = field(default=None)
     character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
@@ -1194,7 +1250,7 @@ class SystemLive2d(Live2d):
 @dataclass(slots=True)
 class Reward:
     id: Optional[int] = field(default=None)
-    mission_type: Optional[Union[MissionType, Unknown]] = field(default=None)
+    mission_type: Optional[Union[pjenums.MissionType, Unknown]] = field(default=None)
     mission_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
@@ -1204,7 +1260,7 @@ class Reward:
 class NormalMission:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    normal_mission_type: Optional[Union[NormalMissionType, Unknown]] = field(
+    normal_mission_type: Optional[Union[pjenums.NormalMissionType, Unknown]] = field(
         default=None
     )
     requirement: Optional[int] = field(default=None)
@@ -1216,11 +1272,11 @@ class NormalMission:
 class BeginnerMission:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    beginner_mission_type: Optional[Union[BeginnerMissionType, Unknown]] = field(
-        default=None
-    )
+    beginner_mission_type: Optional[
+        Union[pjenums.BeginnerMissionType, Unknown]
+    ] = field(default=None)
     beginner_mission_category: Optional[
-        Union[BeginnerMissionCategory, Unknown]
+        Union[pjenums.BeginnerMissionCategory, Unknown]
     ] = field(default=None)
     requirement: Optional[int] = field(default=None)
     sentence: Optional[str] = field(default=None)
@@ -1229,12 +1285,12 @@ class BeginnerMission:
 
 @dataclass(slots=True)
 class Detail:
-    resource_box_purpose: Optional[Union[ResourceBoxPurpose, Unknown]] = field(
+    resource_box_purpose: Optional[Union[pjenums.ResourceBoxPurpose, Unknown]] = field(
         default=None
     )
     resource_box_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(default=None)
     resource_quantity: Optional[int] = field(default=None)
     resource_id: Optional[int] = field(default=None)
     resource_level: Optional[int] = field(default=None)
@@ -1242,11 +1298,13 @@ class Detail:
 
 @dataclass(slots=True)
 class ResourceBox:
-    resource_box_purpose: Optional[Union[ResourceBoxPurpose, Unknown]] = field(
+    resource_box_purpose: Optional[Union[pjenums.ResourceBoxPurpose, Unknown]] = field(
         default=None
     )
     id: Optional[int] = field(default=None)
-    resource_box_type: Optional[Union[ResourceBoxType, Unknown]] = field(default=None)
+    resource_box_type: Optional[Union[pjenums.ResourceBoxType, Unknown]] = field(
+        default=None
+    )
     details: Optional[list[Detail]] = field(default=None)
     description: Optional[str] = field(default=None)
     name: Optional[str] = field(default=None)
@@ -1265,7 +1323,9 @@ class LiveMissionPeriod:
 class LiveMission:
     id: Optional[int] = field(default=None)
     live_mission_period_id: Optional[int] = field(default=None)
-    live_mission_type: Optional[Union[LiveMissionType, Unknown]] = field(default=None)
+    live_mission_type: Optional[Union[pjenums.LiveMissionType, Unknown]] = field(
+        default=None
+    )
     requirement: Optional[int] = field(default=None)
     rewards: Optional[list[Reward]] = field(default=None)
 
@@ -1289,7 +1349,7 @@ class PenlightColor:
     description: Optional[str] = field(default=None)
     color_code: Optional[str] = field(default=None)
     character_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
 
 
 @dataclass(slots=True)
@@ -1304,7 +1364,7 @@ class Penlight:
 @dataclass(slots=True)
 class LiveTalk:
     id: Optional[int] = field(default=None)
-    live_talk_type: Optional[Union[LiveTalkType, Unknown]] = field(default=None)
+    live_talk_type: Optional[Union[pjenums.LiveTalkType, Unknown]] = field(default=None)
     scenario_id: Optional[str] = field(default=None)
     character_id1: Optional[int] = field(default=None)
     character_id2: Optional[int] = field(default=None)
@@ -1356,7 +1416,7 @@ class GachaCeilExchange:
     ] = field(default=None)
     exchange_limit: Optional[int] = field(default=None)
     gacha_ceil_exchange_label_type: Optional[
-        Union[GachaCeilExchangeLabelType, Unknown]
+        Union[pjenums.GachaCeilExchangeLabelType, Unknown]
     ] = field(default=None)
     substitute_limit: Optional[int] = field(default=None)
 
@@ -1392,7 +1452,7 @@ class GachaTicket:
 class HonorGroup:
     id: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
-    honor_type: Optional[Union[HonorType, Unknown]] = field(default=None)
+    honor_type: Optional[Union[pjenums.HonorType, Unknown]] = field(default=None)
     archive_published_at: Optional[datetime] = field(default=None)
     background_asset_bundle_name: Optional[str] = field(default=None)
 
@@ -1410,7 +1470,7 @@ class Honor:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     group_id: Optional[int] = field(default=None)
-    honor_rarity: Optional[Union[HonorRarity, Unknown]] = field(default=None)
+    honor_rarity: Optional[Union[pjenums.HonorRarity, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     levels: Optional[list[HonorLevel]] = field(default=None)
@@ -1421,7 +1481,9 @@ class Honor:
 class HonorMission:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    honor_mission_type: Optional[Union[HonorMissionType, Unknown]] = field(default=None)
+    honor_mission_type: Optional[Union[pjenums.HonorMissionType, Unknown]] = field(
+        default=None
+    )
     requirement: Optional[int] = field(default=None)
     sentence: Optional[str] = field(default=None)
     rewards: Optional[list[Reward]] = field(default=None)
@@ -1442,7 +1504,7 @@ class BondsHonor:
     bonds_group_id: Optional[int] = field(default=None)
     game_character_unit_id1: Optional[int] = field(default=None)
     game_character_unit_id2: Optional[int] = field(default=None)
-    honor_rarity: Optional[Union[HonorRarity, Unknown]] = field(default=None)
+    honor_rarity: Optional[Union[pjenums.HonorRarity, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     description: Optional[str] = field(default=None)
     levels: Optional[list[BondsHonorLevel]] = field(default=None)
@@ -1465,7 +1527,9 @@ class BondsReward:
     bonds_group_id: Optional[int] = field(default=None)
     rank: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    bonds_reward_type: Optional[Union[BondsRewardType, Unknown]] = field(default=None)
+    bonds_reward_type: Optional[Union[pjenums.BondsRewardType, Unknown]] = field(
+        default=None
+    )
     resource_box_id: Optional[int] = field(default=None)
     description: Optional[str] = field(default=None)
 
@@ -1474,7 +1538,9 @@ class BondsReward:
 class ChallengeLiveDetail:
     id: Optional[int] = field(default=None)
     challenge_live_id: Optional[int] = field(default=None)
-    challenge_live_type: Optional[Union[LiveType, Unknown]] = field(default=None)
+    challenge_live_type: Optional[Union[pjenums.LiveType, Unknown]] = field(
+        default=None
+    )
 
 
 @dataclass(slots=True)
@@ -1556,9 +1622,9 @@ class VirtualLiveSetlist:
     id: Optional[int] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    virtual_live_setlist_type: Optional[Union[VirtualLiveSetlistType, Unknown]] = field(
-        default=None
-    )
+    virtual_live_setlist_type: Optional[
+        Union[pjenums.VirtualLiveSetlistType, Unknown]
+    ] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     virtual_live_stage_id: Optional[int] = field(default=None)
     music_id: Optional[int] = field(default=None)
@@ -1575,7 +1641,7 @@ class VirtualLiveSetlist:
 class VirtualLiveBeginnerSchedule:
     id: Optional[int] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
-    day_of_week: Optional[Union[DayOfWeek, Unknown]] = field(default=None)
+    day_of_week: Optional[Union[pjenums.DayOfWeek, Unknown]] = field(default=None)
     start_time: Optional[str] = field(default=None)
     end_time: Optional[str] = field(default=None)
 
@@ -1601,7 +1667,9 @@ class VirtualLiveCharacter:
 @dataclass(slots=True)
 class VirtualLiveReward:
     id: Optional[int] = field(default=None)
-    virtual_live_type: Optional[Union[VirtualLiveType, Unknown]] = field(default=None)
+    virtual_live_type: Optional[Union[pjenums.VirtualLiveType, Unknown]] = field(
+        default=None
+    )
     virtual_live_id: Optional[int] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
 
@@ -1619,9 +1687,9 @@ class VirtualLiveWaitingRoom:
 @dataclass(slots=True)
 class VirtualItem:
     id: Optional[int] = field(default=None)
-    virtual_item_category: Optional[Union[VirtualItemCategory, Unknown]] = field(
-        default=None
-    )
+    virtual_item_category: Optional[
+        Union[pjenums.VirtualItemCategory, Unknown]
+    ] = field(default=None)
     seq: Optional[int] = field(default=None)
     priority: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
@@ -1630,23 +1698,23 @@ class VirtualItem:
     cost_jewel: Optional[int] = field(default=None)
     cheer_point: Optional[int] = field(default=None)
     effect_asset_bundle_name: Optional[str] = field(default=None)
-    effect_expression_type: Optional[Union[EffectExpressionType, Unknown]] = field(
-        default=None
-    )
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    effect_expression_type: Optional[
+        Union[pjenums.EffectExpressionType, Unknown]
+    ] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     game_character_unit_id: Optional[int] = field(default=None)
-    virtual_item_label_type: Optional[Union[VirtualItemLabelType, Unknown]] = field(
-        default=None
-    )
+    virtual_item_label_type: Optional[
+        Union[pjenums.VirtualItemLabelType, Unknown]
+    ] = field(default=None)
 
 
 @dataclass(slots=True)
 class VirtualLiveAppeal:
     id: Optional[int] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
-    virtual_live_stage_status: Optional[Union[VirtualLiveStageStatus, Unknown]] = field(
-        default=None
-    )
+    virtual_live_stage_status: Optional[
+        Union[pjenums.VirtualLiveStageStatus, Unknown]
+    ] = field(default=None)
     appeal_text: Optional[str] = field(default=None)
 
 
@@ -1660,7 +1728,9 @@ class VirtualLiveInformation:
 @dataclass(slots=True)
 class VirtualLive:
     id: Optional[int] = field(default=None)
-    virtual_live_type: Optional[Union[VirtualLiveType, Unknown]] = field(default=None)
+    virtual_live_type: Optional[Union[pjenums.VirtualLiveType, Unknown]] = field(
+        default=None
+    )
     virtual_live_platform: Optional[str] = field(default=None)
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
@@ -1692,9 +1762,9 @@ class VirtualLive:
 class VirtualShopItem:
     id: Optional[int] = field(default=None)
     virtual_shop_id: Optional[int] = field(default=None)
-    virtual_shop_item_type: Optional[Union[VirtualShopItemType, Unknown]] = field(
-        default=None
-    )
+    virtual_shop_item_type: Optional[
+        Union[pjenums.VirtualShopItemType, Unknown]
+    ] = field(default=None)
     seq: Optional[int] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
     cost_virtual_coin: Optional[int] = field(default=None)
@@ -1711,15 +1781,19 @@ class VirtualShop:
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
     virtual_shop_items: Optional[list[VirtualShopItem]] = field(default=None)
-    virtual_shop_type: Optional[Union[VirtualShopType, Unknown]] = field(default=None)
+    virtual_shop_type: Optional[Union[pjenums.VirtualShopType, Unknown]] = field(
+        default=None
+    )
     virtual_live_id: Optional[int] = field(default=None)
 
 
 @dataclass(slots=True)
 class VirtualLiveCheerMessage:
     id: Optional[int] = field(default=None)
-    virtual_live_type: Optional[Union[VirtualLiveType, Unknown]] = field(default=None)
-    resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    virtual_live_type: Optional[Union[pjenums.VirtualLiveType, Unknown]] = field(
+        default=None
+    )
+    resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(default=None)
     from_cost_virtual_coin: Optional[int] = field(default=None)
     to_cost_virtual_coin: Optional[int] = field(default=None)
     from_cost: Optional[int] = field(default=None)
@@ -1742,9 +1816,9 @@ class VirtualLiveCheerMessageDisplayLimit:
 class VirtualLiveTicket:
     id: Optional[int] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
-    virtual_live_ticket_type: Optional[Union[VirtualLiveTicketType, Unknown]] = field(
-        default=None
-    )
+    virtual_live_ticket_type: Optional[
+        Union[pjenums.VirtualLiveTicketType, Unknown]
+    ] = field(default=None)
     name: Optional[str] = field(default=None)
     flavor_text: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
@@ -1764,7 +1838,7 @@ class AvatarAccessory:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
-    part: Optional[Union[AccessoryPart, Unknown]] = field(default=None)
+    part: Optional[Union[pjenums.AccessoryPart, Unknown]] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
 
 
@@ -1802,7 +1876,9 @@ class AvatarCoordinate:
     asset_bundle_name: Optional[str] = field(default=None)
     skin_color_code: Optional[str] = field(default=None)
     costume_asset_bundle_name: Optional[str] = field(default=None)
-    accessory_part: Optional[Union[AccessoryPart, Unknown]] = field(default=None)
+    accessory_part: Optional[Union[pjenums.AccessoryPart, Unknown]] = field(
+        default=None
+    )
     accessory_asset_bundle_name: Optional[str] = field(default=None)
 
 
@@ -1815,14 +1891,16 @@ class NgWord:
 @dataclass(slots=True)
 class RuleSlide:
     id: Optional[int] = field(default=None)
-    rule_slide_type: Optional[Union[RuleSlideType, Unknown]] = field(default=None)
+    rule_slide_type: Optional[Union[pjenums.RuleSlideType, Unknown]] = field(
+        default=None
+    )
     asset_bundle_name: Optional[str] = field(default=None)
 
 
 @dataclass(slots=True)
 class Facility:
     id: Optional[int] = field(default=None)
-    facility_type: Optional[Union[FacilityType, Unknown]] = field(default=None)
+    facility_type: Optional[Union[pjenums.FacilityType, Unknown]] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
     and_release_condition_id: Optional[int] = field(default=None)
 
@@ -1830,9 +1908,9 @@ class Facility:
 @dataclass(slots=True)
 class OneTimeBehavior:
     id: Optional[int] = field(default=None)
-    one_time_behavior_type: Optional[Union[OneTimeBehaviorType, Unknown]] = field(
-        default=None
-    )
+    one_time_behavior_type: Optional[
+        Union[pjenums.OneTimeBehaviorType, Unknown]
+    ] = field(default=None)
     release_condition_id: Optional[int] = field(default=None)
 
 
@@ -1908,7 +1986,7 @@ class EventRankingRewardRange:
 @dataclass(slots=True)
 class Event:
     id: Optional[int] = field(default=None)
-    event_type: Optional[Union[EventType, Unknown]] = field(default=None)
+    event_type: Optional[Union[pjenums.EventType, Unknown]] = field(default=None)
     name: Optional[str] = field(default=None)
     asset_bundle_name: Optional[str] = field(default=None)
     bgm_asset_bundle_name: Optional[str] = field(default=None)
@@ -1919,7 +1997,7 @@ class Event:
     closed_at: Optional[datetime] = field(default=None)
     distribution_end_at: Optional[datetime] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
     event_ranking_reward_ranges: Optional[list[EventRankingRewardRange]] = field(
         default=None
     )
@@ -1939,14 +2017,16 @@ class EventDeckBonus:
     id: Optional[int] = field(default=None)
     event_id: Optional[int] = field(default=None)
     game_character_unit_id: Optional[int] = field(default=None)
-    card_attr: Optional[Union[CardAttr, Unknown]] = field(default=None)
+    card_attr: Optional[Union[pjenums.CardAttr, Unknown]] = field(default=None)
     bonus_rate: Optional[float] = field(default=None)
 
 
 @dataclass(slots=True)
 class EventRarityBonusRate:
     id: Optional[int] = field(default=None)
-    card_rarity_type: Optional[Union[CardRarityType, Unknown]] = field(default=None)
+    card_rarity_type: Optional[Union[pjenums.CardRarityType, Unknown]] = field(
+        default=None
+    )
     master_rank: Optional[int] = field(default=None)
     bonus_rate: Optional[float] = field(default=None)
 
@@ -1962,7 +2042,7 @@ class EventItem:
 
 @dataclass(slots=True)
 class EpisodeReward:
-    story_type: Optional[Union[StoryType, Unknown]] = field(default=None)
+    story_type: Optional[Union[pjenums.StoryType, Unknown]] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
 
 
@@ -2017,10 +2097,10 @@ class EventStoryUnit:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     event_story_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
-    event_story_unit_relation: Optional[Union[EventStoryUnitRelation, Unknown]] = field(
-        default=None
-    )
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
+    event_story_unit_relation: Optional[
+        Union[pjenums.EventStoryUnitRelation, Unknown]
+    ] = field(default=None)
 
 
 @dataclass(slots=True)
@@ -2050,7 +2130,7 @@ class PreliminaryTournamentMusic:
 class PreliminaryTournament:
     id: Optional[int] = field(default=None)
     preliminary_tournament_type: Optional[
-        Union[PreliminaryTournamentType, Unknown]
+        Union[pjenums.PreliminaryTournamentType, Unknown]
     ] = field(default=None)
     start_at: Optional[datetime] = field(default=None)
     end_at: Optional[datetime] = field(default=None)
@@ -2119,10 +2199,10 @@ class CheerfulCarnivalResultReward:
     id: Optional[int] = field(default=None)
     event_id: Optional[int] = field(default=None)
     cheerful_carnival_team_point_term_type: Optional[
-        Union[CheerfulCarnivalTeamPointTermType, Unknown]
+        Union[pjenums.CheerfulCarnivalTeamPointTermType, Unknown]
     ] = field(default=None)
     cheerful_carnival_result_type: Optional[
-        Union[CheerfulCarnivalResultType, Unknown]
+        Union[pjenums.CheerfulCarnivalResultType, Unknown]
     ] = field(default=None)
     resource_box_id: Optional[int] = field(default=None)
 
@@ -2131,12 +2211,14 @@ class CheerfulCarnivalResultReward:
 class Appeal:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    appeal_target_type: Optional[Union[AppealTargetType, Unknown]] = field(default=None)
-    appeal_type: Optional[Union[AppealType, Unknown]] = field(default=None)
+    appeal_target_type: Optional[Union[pjenums.AppealTargetType, Unknown]] = field(
+        default=None
+    )
+    appeal_type: Optional[Union[pjenums.AppealType, Unknown]] = field(default=None)
     start_at: Optional[datetime] = field(default=None)
     end_at: Optional[datetime] = field(default=None)
     appeal_read_condition_type: Optional[
-        Union[AppealReadConditionType, Unknown]
+        Union[pjenums.AppealReadConditionType, Unknown]
     ] = field(default=None)
     text: Optional[str] = field(default=None)
 
@@ -2174,7 +2256,7 @@ class EpisodeCharacter:
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     character2d_id: Optional[int] = field(default=None)
-    story_type: Optional[Union[StoryType, Unknown]] = field(default=None)
+    story_type: Optional[Union[pjenums.StoryType, Unknown]] = field(default=None)
     episode_id: Optional[int] = field(default=None)
 
 
@@ -2196,12 +2278,14 @@ class CustomProfileTextFont:
 @dataclass(slots=True)
 class CustomProfileResource:
     custom_profile_resource_type: Optional[
-        Union[CustomProfileResourceType, Unknown]
+        Union[pjenums.CustomProfileResourceType, Unknown]
     ] = field(default=None)
     id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
     name: Optional[str] = field(default=None)
-    resource_load_type: Optional[Union[ResourceLoadType, Unknown]] = field(default=None)
+    resource_load_type: Optional[Union[pjenums.ResourceLoadType, Unknown]] = field(
+        default=None
+    )
     resource_load_val: Optional[str] = field(default=None)
     file_name: Optional[str] = field(default=None)
 
@@ -2224,7 +2308,7 @@ class CustomProfileStoryBackgroundResource(CustomProfileResource):
 @dataclass(slots=True)
 class CustomProfileCollectionResource(CustomProfileResource):
     custom_profile_resource_collection_type: Optional[
-        Union[CustomProfileResourceCollectionType, Unknown]
+        Union[pjenums.CustomProfileResourceCollectionType, Unknown]
     ] = field(default=None)
     group_id: Optional[int] = field(default=None)
 
@@ -2249,7 +2333,9 @@ class CustomProfileGachaBehavior:
     id: Optional[int] = field(default=None)
     custom_profile_gacha_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    cost_resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    cost_resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(
+        default=None
+    )
     cost_resource_quantity: Optional[int] = field(default=None)
     spin_count: Optional[int] = field(default=None)
 
@@ -2259,7 +2345,7 @@ class CustomProfileGachaDetail:
     id: Optional[int] = field(default=None)
     custom_profile_gacha_id: Optional[int] = field(default=None)
     custom_profile_resource_type: Optional[
-        Union[CustomProfileResourceType, Unknown]
+        Union[pjenums.CustomProfileResourceType, Unknown]
     ] = field(default=None)
     custom_profile_resource_id: Optional[int] = field(default=None)
     custom_profile_resource_quantity: Optional[int] = field(default=None)
@@ -2295,8 +2381,8 @@ class StreamingLiveBgm:
 class Omikuji:
     id: Optional[int] = field(default=None)
     omikuji_group_id: Optional[int] = field(default=None)
-    unit: Optional[Union[Unit, Unknown]] = field(default=None)
-    fortune_type: Optional[Union[FortuneType, Unknown]] = field(default=None)
+    unit: Optional[Union[pjenums.Unit, Unknown]] = field(default=None)
+    fortune_type: Optional[Union[pjenums.FortuneType, Unknown]] = field(default=None)
     summary: Optional[str] = field(default=None)
     title1: Optional[str] = field(default=None)
     description1: Optional[str] = field(default=None)
@@ -2327,7 +2413,7 @@ class OmikujiGroup:
 class OmikujiRate:
     id: Optional[int] = field(default=None)
     omikuji_group_id: Optional[int] = field(default=None)
-    fortune_type: Optional[Union[FortuneType, Unknown]] = field(default=None)
+    fortune_type: Optional[Union[pjenums.FortuneType, Unknown]] = field(default=None)
     rate: Optional[float] = field(default=None)
 
 
@@ -2343,7 +2429,7 @@ class OmikujiReward:
     id: Optional[int] = field(default=None)
     omikuji_group_id: Optional[int] = field(default=None)
     seq: Optional[int] = field(default=None)
-    resource_type: Optional[Union[ResourceType, Unknown]] = field(default=None)
+    resource_type: Optional[Union[pjenums.ResourceType, Unknown]] = field(default=None)
     resource_id: Optional[int] = field(default=None)
     resource_quantity: Optional[int] = field(default=None)
 
@@ -2352,16 +2438,16 @@ class OmikujiReward:
 class VirtualBoothShop:
     id: Optional[int] = field(default=None)
     virtual_live_id: Optional[int] = field(default=None)
-    virtual_booth_shop_type: Optional[Union[VirtualBoothShopType, Unknown]] = field(
-        default=None
-    )
+    virtual_booth_shop_type: Optional[
+        Union[pjenums.VirtualBoothShopType, Unknown]
+    ] = field(default=None)
     target_id: Optional[int] = field(default=None)
 
 
 @dataclass(slots=True)
 class SpecialSeason:
     id: Optional[int] = field(default=None)
-    special_season_type: Optional[Union[SpecialSeasonType, Unknown]] = field(
+    special_season_type: Optional[Union[pjenums.SpecialSeasonType, Unknown]] = field(
         default=None
     )
     start_at: Optional[datetime] = field(default=None)
@@ -2377,7 +2463,7 @@ class SpecialSeasonArea:
     asset_bundle_name: Optional[str] = field(default=None)
     file_name: Optional[str] = field(default=None)
     special_season_area_use_type: Optional[
-        Union[SpecialSeasonAreaUseType, Unknown]
+        Union[pjenums.SpecialSeasonAreaUseType, Unknown]
     ] = field(default=None)
 
 
@@ -2385,9 +2471,9 @@ class SpecialSeasonArea:
 class RankMatchPenalty:
     id: Optional[int] = field(default=None)
     count: Optional[int] = field(default=None)
-    rank_match_penalty_type: Optional[Union[RankMatchPenaltyType, Unknown]] = field(
-        default=None
-    )
+    rank_match_penalty_type: Optional[
+        Union[pjenums.RankMatchPenaltyType, Unknown]
+    ] = field(default=None)
     rank_match_penalty_type_value: Optional[int] = field(default=None)
 
 
@@ -2395,7 +2481,9 @@ class RankMatchPenalty:
 class RankMatchPlacement:
     id: Optional[int] = field(default=None)
     rank_match_placement_condition_type: Optional[str] = field(default=None)
-    tier_behavior_type: Optional[Union[TierBehaviorType, Unknown]] = field(default=None)
+    tier_behavior_type: Optional[Union[pjenums.TierBehaviorType, Unknown]] = field(
+        default=None
+    )
     tier_behavior_type_value: Optional[int] = field(default=None)
     rank_match_placement_condition_type_value: Optional[int] = field(default=None)
 
@@ -2404,11 +2492,11 @@ class RankMatchPlacement:
 class RankMatchBonusPointCondition:
     id: Optional[int] = field(default=None)
     rank_match_bonus_point_condition_type: Optional[
-        Union[RankMatchBonusPointConditionType, Unknown]
+        Union[pjenums.RankMatchBonusPointConditionType, Unknown]
     ] = field(default=None)
     group_id: Optional[int] = field(default=None)
     priority: Optional[int] = field(default=None)
-    calc_type: Optional[Union[CalcType, Unknown]] = field(default=None)
+    calc_type: Optional[Union[pjenums.CalcType, Unknown]] = field(default=None)
     bonus_point: Optional[int] = field(default=None)
 
 

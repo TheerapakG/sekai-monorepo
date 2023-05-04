@@ -6,7 +6,8 @@
 from dataclasses import dataclass, field, fields
 from typing import Optional, Union, Type, TypeVar
 
-from pjsekai.enums import *
+from async_pjsekai.enums.enums import AppVersionStatus
+from async_pjsekai.enums.unknown import Unknown
 
 
 T_SystemInfo = TypeVar("T_SystemInfo", bound="SystemInfo")

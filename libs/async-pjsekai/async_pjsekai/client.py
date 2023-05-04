@@ -7,24 +7,32 @@ from asyncio.locks import Lock
 from contextlib import asynccontextmanager
 import dataclasses
 from functools import wraps
-from typing import AsyncIterator, Coroutine, Callable, Optional, TypeVar
+from typing import AsyncIterator, Coroutine, Callable, Optional, TypeVar, Union
 from typing_extensions import ParamSpec, Concatenate
 from json import load, dump, JSONDecodeError
 from pathlib import Path
 
 from aiohttp.abc import AbstractCookieJar
 
+from async_pjsekai.enums.tutorial_status import TutorialStatus, Unit
 from async_pjsekai.models.master_data import MasterData
-from async_pjsekai.models.system_info import SystemInfo
-from pjsekai.models.asset_bundle_info import *
-from pjsekai.models.game_version import *
-from pjsekai.models.information import *
-from pjsekai.enums import *
-from async_pjsekai.api import API
+from async_pjsekai.models.system_info import SystemInfo, AppVersionStatus
+from async_pjsekai.models.game_version import GameVersion
+from async_pjsekai.models.information import Information
+from async_pjsekai.api import API, Platform
 from async_pjsekai.asset import Asset
-from pjsekai.exceptions import *
-from pjsekai.utilities import *
-from pjsekai.live import *
+from async_pjsekai.exceptions import (
+    AppUpdateRequired,
+    AssetUpdateRequired,
+    DataUpdateRequired,
+    MultipleUpdatesRequired,
+    NoAvailableVersions,
+    NotAuthenticatedException,
+    SessionExpired,
+    ServerInMaintenance,
+    UpdateRequired,
+)
+from async_pjsekai.live import SoloLive, LiveNotActive, LiveDead
 
 from .models.converters import msgpack_converter
 
@@ -520,7 +528,9 @@ class Client:
         if self._system_info.app_version is None or self._system_info.app_hash is None:
             await self.update_app()
 
-        self.game_version = GameVersion(**await self.api_manager.get_game_version())
+        self.game_version = msgpack_converter.loads(
+            await self.api_manager.get_game_version_packed(), GameVersion
+        )
         if self._api_domain is not None:
             self.api_domain = self._api_domain
         else:
@@ -759,7 +769,7 @@ class Client:
         return False
 
     async def refresh_signed_cookie(self) -> AbstractCookieJar:
-        cookies: Dict[str, str] = {
+        cookies: dict[str, str] = {
             k: v
             for k, v in (
                 cookie.split("=")
@@ -783,7 +793,7 @@ class Client:
     @_auto_session_refresh
     async def get_notices(self) -> list[Information]:
         return [
-            Information(**information)
+            msgpack_converter.structure(information, Information)
             for information in (await self.api_manager.get_notices())["informations"]
         ]
 

@@ -7,8 +7,7 @@ from datetime import datetime
 from functools import partial
 from typing import Union, get_args, get_origin
 
-from pjsekai.enums.unknown import Unknown
-from pjsekai.models.model import to_pjsekai_camel
+from async_pjsekai.enums.unknown import Unknown
 
 from cattrs.converters import BaseConverter
 from cattrs.preconf.json import make_converter as make_json_converter
@@ -17,6 +16,19 @@ from cattrs.gen import make_dict_unstructure_fn, make_dict_structure_fn, overrid
 
 json_converter = make_json_converter()
 msgpack_converter = make_msgpack_converter()
+
+
+def to_lower_camel(string: str) -> str:
+    split = string.split("_")
+    return "".join((split[0].lower(), *(word.capitalize() for word in split[1:])))
+
+
+def to_pjsekai_camel(string: str) -> str:
+    return (
+        to_lower_camel(string)
+        .replace("AssetBundle", "Assetbundle")
+        .replace("assetBundle", "assetbundle")
+    )
 
 
 def to_pjsekai_camel_unstructure(converter: BaseConverter, cls):

@@ -12,13 +12,13 @@ from aiohttp import ClientSession
 from aiohttp.http_exceptions import HttpProcessingError
 from jwt import encode as jwtEncode
 
-from pjsekai.models import GameVersion, AssetOS
+from async_pjsekai.models.game_version import GameVersion
 from async_pjsekai.models.system_info import SystemInfo
 from async_pjsekai.asset_bundle import AssetBundle
-from pjsekai.exceptions import UpdateRequired, SessionExpired, MissingJWTScecret
-from pjsekai.enums.tutorial_status import TutorialStatus
-from pjsekai.enums.platform import Platform
-from pjsekai.utilities import encrypt, decrypt, msgpack, unmsgpack
+from async_pjsekai.exceptions import UpdateRequired, SessionExpired, MissingJWTScecret
+from async_pjsekai.enums.tutorial_status import TutorialStatus
+from async_pjsekai.enums.platform import AssetOS, Platform
+from async_pjsekai.utilities import encrypt, decrypt, msgpack, unmsgpack
 
 
 class API:
@@ -164,7 +164,7 @@ class API:
         self.key = key
         self.iv = iv
         self.jwt_secret = jwt_secret
-        self.system_info = SystemInfo.create()  # type: ignore
+        self.system_info = SystemInfo.create()
         if system_info is not None:
             self.system_info = system_info
         self.api_domain = api_domain
@@ -180,7 +180,7 @@ class API:
         self.server_number = server_number
 
         self._session_token = None
-        self.game_version = GameVersion()  # type: ignore
+        self.game_version = GameVersion().create()
 
     async def close(self):
         await self.session.close()
@@ -254,14 +254,14 @@ class API:
             response.raise_for_status()
             return response.headers["Set-Cookie"]
 
-    async def get_game_version(
+    async def get_game_version_packed(
         self,
         app_version: Optional[str] = None,
         app_hash: Optional[str] = None,
         game_version_domain: Optional[str] = None,
         enable_game_version_encryption: Optional[bool] = None,
         system_info: Optional[SystemInfo] = None,
-    ) -> dict:
+    ):
         if game_version_domain is None:
             game_version_domain = self.game_version_domain
         if enable_game_version_encryption is None:
@@ -282,7 +282,25 @@ class API:
             headers=self._generate_headers(system_info),
         ) as response:
             response.raise_for_status()
-            return self._unpack(await response.read(), enable_game_version_encryption)
+            return self._decrypt(await response.read(), enable_game_version_encryption)
+
+    async def get_game_version(
+        self,
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        game_version_domain: Optional[str] = None,
+        enable_game_version_encryption: Optional[bool] = None,
+        system_info: Optional[SystemInfo] = None,
+    ) -> dict:
+        return unmsgpack(
+            await self.get_game_version_packed(
+                app_version,
+                app_hash,
+                game_version_domain,
+                enable_game_version_encryption,
+                system_info,
+            )
+        )
 
     async def get_asset_bundle_info_packed(
         self,

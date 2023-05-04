@@ -11,7 +11,7 @@ from pathlib import Path
 from async_pjsekai.api import API
 from async_pjsekai.models.asset_bundle_info import AssetBundleInfo
 
-from .models.converters import msgpack_converter
+from async_pjsekai.models.converters import msgpack_converter
 
 
 class Asset:

@@ -3,7 +3,31 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
+
+from msgpack import packb, unpackb
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+
+
+def msgpack(dict: Optional[dict]) -> bytes:
+    return b"" if dict is None else packb(dict)  # type: ignore
+
+
+def unmsgpack(data: bytes) -> dict:
+    return unpackb(data, strict_map_key=False) if len(data) > 0 else {}  # type: ignore
+
+
+def encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    ciphertext: bytes = cipher.encrypt(pad(plaintext, 16))
+    return ciphertext
+
+
+def decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    plaintext: bytes = unpad(cipher.decrypt(ciphertext), 16)
+    return plaintext
 
 
 async def deobfuscated(obfuscated_chunks: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
