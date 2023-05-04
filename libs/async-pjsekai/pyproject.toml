@@ -5,7 +5,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "async-pjsekai"
 version = "0.0.10.dev0"
-description = "asynchronous pypjsekai."
+description = "Asynchronous reverse engineered client for the game Project SEKAI COLORFUL STAGE! feat. Hatsune Miku"
+readme = "README.md"
 license = "MIT"
 authors = [
     "TheerapakG <theerapakg@gmail.com>",
