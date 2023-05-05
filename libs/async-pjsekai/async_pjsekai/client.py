@@ -3,16 +3,18 @@
 #
 # SPDX-License-Identifier: MIT
 
+import aiofiles
+import aiofiles.os
+from aiohttp.abc import AbstractCookieJar
 from asyncio.locks import Lock
 from contextlib import asynccontextmanager
 import dataclasses
 from functools import wraps
-from typing import AsyncIterator, Coroutine, Callable, Optional, TypeVar, Union
+from types import TracebackType
+from typing import AsyncIterator, Coroutine, Callable, Optional, Type, TypeVar, Union
 from typing_extensions import ParamSpec, Concatenate
-from json import load, dump, JSONDecodeError
+from json import loads, dumps, JSONDecodeError
 from pathlib import Path
-
-from aiohttp.abc import AbstractCookieJar
 
 from async_pjsekai.enums.tutorial_status import TutorialStatus, Unit
 from async_pjsekai.models.master_data import MasterData
@@ -39,6 +41,216 @@ from .models.converters import msgpack_converter
 P = ParamSpec("P")
 R = TypeVar("R")
 
+
+class SystemInfoMutex:
+    _lock: Lock
+    _system_info: SystemInfo
+    _system_info_file_path: Optional[Path]
+
+    def __init__(self, system_info_file_path: Optional[Path]) -> None:
+        self._lock = Lock()
+        self._system_info = SystemInfo().create()
+        self._system_info_file_path = system_info_file_path
+
+    @property
+    def system_info_file_path(self):
+        return self._system_info_file_path
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+        return self._system_info
+    
+    async def __aexit__(self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType]
+    ):
+        self._lock.release()
+
+    async def _loads(self, data: bytes, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+        del self._system_info
+        await self._set_value(msgpack_converter.loads(data, SystemInfo))
+        if app_version is not None and app_hash is not None:
+            await self._replace_value(
+                app_version=app_version,
+                app_hash=app_hash,
+                multi_play_version=multi_play_version,
+            )
+
+    @asynccontextmanager
+    async def loads(self, data: bytes, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+        async with self._lock:
+            await self._loads(data, app_version, app_hash, multi_play_version)
+            yield self._system_info
+
+    async def load(self, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+        async with self._lock:
+            if self.system_info_file_path is not None:
+                try:
+                    async with aiofiles.open(self.system_info_file_path, "rb") as f:
+                        await self._loads(await f.read())
+                except FileNotFoundError:
+                    await self._set_value(SystemInfo.create())
+            else:
+                await self._set_value(SystemInfo.create())
+
+            if app_version is not None and app_hash is not None:
+                await self._replace_value(
+                    app_version=app_version,
+                    app_hash=app_hash,
+                    multi_play_version=multi_play_version,
+                )
+
+    async def _write(self):
+        if self.system_info_file_path is not None:
+            self.system_info_file_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = self.system_info_file_path.with_suffix(self.system_info_file_path.suffix + ".tmp")
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(msgpack_converter.dumps(self._system_info, SystemInfo))
+            await aiofiles.os.replace(temp_path, self.system_info_file_path)
+
+    async def _set_value(self, new_value: SystemInfo):
+        self._system_info = new_value
+        await self._write()            
+
+    async def set_value(self, new_value: SystemInfo):
+        async with self._lock:
+            await self._set_value(new_value)
+
+    async def _replace_value(self, **changes):
+        self._system_info = dataclasses.replace(self._system_info, **changes)
+        await self._write()
+        return self._system_info 
+
+    @asynccontextmanager
+    async def replace_value(self, **changes):
+        async with self._lock:
+            yield await self._replace_value(**changes)
+
+class MasterDataMutex:
+    _lock: Lock
+    _master_data: MasterData
+    _master_data_file_path: Optional[Path]
+
+    def __init__(self, master_data_file_path: Optional[Path]) -> None:
+        self._lock = Lock()
+        self._master_data = MasterData().create()
+        self._master_data_file_path = master_data_file_path
+
+    @property
+    def master_data_file_path(self):
+        return self._master_data_file_path
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+        return self._master_data
+    
+    async def __aexit__(self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType]
+    ):
+        self._lock.release()
+
+    async def _loads(self, data: bytes):
+        del self._master_data
+        await self._set_value(msgpack_converter.loads(data, MasterData))
+
+    @asynccontextmanager
+    async def loads(self, data: bytes):
+        async with self._lock:
+            await self._loads(data)
+            yield self._master_data
+
+    async def load(self):
+        async with self._lock:
+            if self.master_data_file_path is not None:
+                try:
+                    async with aiofiles.open(self.master_data_file_path, "rb") as f:
+                        await self._loads(await f.read())
+                except FileNotFoundError:
+                    await self._set_value(MasterData.create())
+            else:
+                await self._set_value(MasterData.create())
+
+    async def _write(self):
+        if self.master_data_file_path is not None:
+            self.master_data_file_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = self.master_data_file_path.with_suffix(self.master_data_file_path.suffix + ".tmp")
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(msgpack_converter.dumps(self._master_data, MasterData))
+            await aiofiles.os.replace(temp_path, self.master_data_file_path)
+
+    async def _set_value(self, new_value: MasterData):
+        self._master_data = new_value
+        await self._write()            
+
+    async def set_value(self, new_value: MasterData):
+        async with self._lock:
+            await self._set_value(new_value)
+
+class UserDataMutex:
+    _lock: Lock
+    _user_data: dict
+    _user_data_file_path: Optional[Path]
+
+    def __init__(self, user_data_file_path: Optional[Path]) -> None:
+        self._lock = Lock()
+        self._user_data = dict()
+        self._user_data_file_path = user_data_file_path
+
+    @property
+    def user_data_file_path(self):
+        return self._user_data_file_path
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+        return self._user_data
+    
+    async def __aexit__(self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType]
+    ):
+        self._lock.release()
+
+    async def load(self):
+        async with self._lock:
+            if self.user_data_file_path is not None:
+                try:
+                    async with aiofiles.open(self.user_data_file_path, "r") as f:
+                        await self._set_value(loads(await f.read()))
+                except (FileNotFoundError, JSONDecodeError):
+                    await self._set_value(dict())
+            else:
+                await self._set_value(dict())
+
+    async def _write(self):
+        if self.user_data_file_path is not None:
+            self.user_data_file_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = self.user_data_file_path.with_suffix(self.user_data_file_path.suffix + ".tmp")
+            async with aiofiles.open(temp_path, "w") as f:
+                await f.write(dumps(self._user_data, indent=2, ensure_ascii=False))
+            await aiofiles.os.replace(temp_path, self.user_data_file_path)
+
+    async def _set_value(self, new_value: dict):
+        self._user_data = new_value
+        await self._write()            
+
+    async def set_value(self, new_value: dict):
+        async with self._lock:
+            await self._set_value(new_value)
+
+    async def _update_value(self, update: dict):
+        self._user_data = {
+            **self._user_data,
+            **update
+        }
+        await self._write()            
+
+    async def update_value(self, update: dict):
+        async with self._lock:
+            await self._update_value(update)
 
 class Client:
     def _auth_required(func: Callable[Concatenate["Client", P], R]) -> Callable[Concatenate["Client", P], R]:  # type: ignore[misc]
@@ -110,23 +322,17 @@ class Client:
     auto_session_refresh: bool
     auto_update: bool
 
-    _system_info_file_path: Optional[Path]
-
     @property
     def system_info_file_path(self) -> Optional[Path]:
-        return self._system_info_file_path
-
-    _master_data_file_path: Optional[Path]
+        return self._system_info.system_info_file_path
 
     @property
     def master_data_file_path(self) -> Optional[Path]:
-        return self._master_data_file_path
-
-    _user_data_file_path: Optional[Path]
+        return self._master_data.master_data_file_path
 
     @property
     def user_data_file_path(self) -> Optional[Path]:
-        return self._user_data_file_path
+        return self._user_data.user_data_file_path
 
     _asset_directory: Optional[Path]
 
@@ -158,58 +364,56 @@ class Client:
     def credential(self) -> Optional[str]:
         return self._credential
 
-    _system_info: SystemInfo
-    _system_info_lock: Lock
+    _system_info: SystemInfoMutex
 
     @property
     @asynccontextmanager
     async def system_info(self):
-        async with self._system_info_lock:
-            yield self._system_info
+        async with self._system_info as system_info:
+            yield system_info
 
-    @system_info.setter
-    def system_info(self, new_value: SystemInfo) -> None:
-        self._system_info = new_value
-        if self.system_info_file_path is not None:
-            self.system_info_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.system_info_file_path.open("wb") as f:
-                f.write(msgpack_converter.dumps(new_value, SystemInfo))
+    @asynccontextmanager
+    async def loads_system_info(self, data: bytes):
+        async with self._system_info.loads(data) as system_info:
+            yield system_info
 
-    _master_data: MasterData
-    _master_data_lock: Lock
+    async def set_system_info(self, new_value: SystemInfo):
+        await self._system_info.set_value(new_value)
+
+    @asynccontextmanager
+    async def replace_system_info(self, **changes):
+        async with self._system_info.replace_value(**changes) as system_info:
+            yield system_info
+
+    _master_data: MasterDataMutex
 
     @property
     @asynccontextmanager
     async def master_data(self):
-        async with self._master_data_lock:
-            yield self._master_data
+        async with self._master_data as master_data:
+            yield master_data
 
-    @master_data.setter
-    def master_data(self, new_value: MasterData) -> None:
-        self._master_data = new_value
-        if self.master_data_file_path is not None:
-            self.master_data_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.master_data_file_path.open("wb") as f:
-                f.write(msgpack_converter.dumps(new_value, MasterData))
+    @asynccontextmanager
+    async def loads_master_data(self, data: bytes):
+        async with self._master_data.loads(data) as master_data:
+            yield master_data
 
-    _user_data: dict
-    _user_data_lock: Lock
+    async def set_master_data(self, new_value: MasterData):
+        await self._master_data.set_value(new_value)
+
+    _user_data: UserDataMutex
 
     @property
     @asynccontextmanager
     async def user_data(self):
-        async with self._user_data_lock:
-            yield self._user_data
+        async with self._user_data as user_data:
+            yield user_data
 
-    def _update_user_resources(self, response) -> dict:
-        self._user_data = {
-            **self._user_data,
-            **response["updatedResources"],
-        }
-        if self.user_data_file_path is not None:
-            self.user_data_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.user_data_file_path.open("w") as f:
-                dump(self._user_data, f, indent=2, ensure_ascii=False)
+    async def set_user_data(self, new_value: dict):
+        await self._user_data.set_value(new_value)
+
+    async def _update_user_resources(self, response: dict) -> dict:
+        await self._user_data.update_value(response["updatedResources"])
         del response["updatedResources"]
         return response
 
@@ -220,6 +424,7 @@ class Client:
             yield user_data["now"]
 
     @property
+    @asynccontextmanager
     @_auth_required
     async def friends(self) -> AsyncIterator[Optional[list[dict]]]:
         async with self.user_data as user_data:
@@ -233,6 +438,7 @@ class Client:
                 ]
 
     @property
+    @asynccontextmanager
     @_auth_required
     async def received_friend_requests(self) -> AsyncIterator[Optional[list[dict]]]:
         async with self.user_data as user_data:
@@ -246,6 +452,7 @@ class Client:
                 ]
 
     @property
+    @asynccontextmanager
     @_auth_required
     async def sent_friend_requests(self) -> AsyncIterator[Optional[list[dict]]]:
         async with self.user_data as user_data:
@@ -415,77 +622,34 @@ class Client:
         self.auto_session_refresh = auto_session_refresh
         self.auto_update = auto_update
 
-        self._system_info_file_path = None
-        self._master_data_file_path = None
-        self._user_data_file_path = None
+        _system_info_file_path = None
+        _master_data_file_path = None
+        _user_data_file_path = None
         self._asset_directory = None
         if system_info_file_path is not None:
-            self._system_info_file_path = Path(system_info_file_path)
+            _system_info_file_path = Path(system_info_file_path)
         if master_data_file_path is not None:
-            self._master_data_file_path = Path(master_data_file_path)
+            _master_data_file_path = Path(master_data_file_path)
         if user_data_file_path is not None:
-            self._user_data_file_path = Path(user_data_file_path)
+            _user_data_file_path = Path(user_data_file_path)
         if asset_directory is not None:
             self._asset_directory = Path(asset_directory)
         self._asset = None
 
-        self._system_info_lock = Lock()
-
-        if self.system_info_file_path is not None:
-            try:
-                with self.system_info_file_path.open("rb") as f:
-                    self._system_info = msgpack_converter.loads(f.read(), SystemInfo)
-            except FileNotFoundError:
-                self.system_info = SystemInfo.create()
-        else:
-            self.system_info = SystemInfo.create()
-        if app_version is not None and app_hash is not None:
-            self.system_info = dataclasses.replace(
-                self._system_info,
-                app_version=app_version,
-                app_hash=app_hash,
-                multi_play_version=multi_play_version,
-            )
-
-        self._master_data_lock = Lock()
-
-        if self.master_data_file_path is not None:
-            try:
-                with self.master_data_file_path.open("rb") as f:
-                    self._master_data = msgpack_converter.loads(f.read(), MasterData)
-            except FileNotFoundError:
-                self.master_data = MasterData.create()
-        else:
-            self.master_data = MasterData.create()
-
-        self._user_data_lock = Lock()
-
-        self._user_data = {}
-        if self.user_data_file_path is not None:
-            try:
-                with self.user_data_file_path.open("r") as f:
-                    self._user_data = load(f)
-            except (FileNotFoundError, JSONDecodeError):
-                with self.user_data_file_path.open("w") as f:
-                    dump(self.user_data, f, indent=2, ensure_ascii=False)
+        self._system_info = SystemInfoMutex(_system_info_file_path)
+        self._master_data = MasterDataMutex(_master_data_file_path)
+        self._user_data = UserDataMutex(_user_data_file_path)
 
         self._user_id = None
         self._credential = None
-        if (
-            self._system_info.asset_version is not None
-            and self._system_info.asset_hash is not None
-            and asset_directory is not None
-        ):
-            self._asset = Asset(
-                self._system_info.asset_version,
-                self._system_info.asset_hash,
-                asset_directory,
-            )
 
         self._platform = platform
         self._key = key
         self._iv = iv
         self._jwt_secret = jwt_secret
+        self._app_version = app_version
+        self._app_hash = app_hash
+        self._multi_play_version = multi_play_version
         self._api_domain = api_domain
         self._asset_bundle_domain = asset_bundle_domain
         self._asset_bundle_info_domain = asset_bundle_info_domain
@@ -501,31 +665,51 @@ class Client:
         self._update_all_on_init = update_all_on_init
 
     async def start(self):
-        self._api_manager = API(
-            platform=self._platform,
-            key=self._key,
-            iv=self._iv,
-            jwt_secret=self._jwt_secret,
-            system_info=self._system_info,
-            api_domain=self._api_domain or API.DEFAULT_API_DOMAIN,
-            asset_bundle_domain=self._asset_bundle_domain,
-            asset_bundle_info_domain=self._asset_bundle_info_domain,
-            game_version_domain=self._game_version_domain,
-            signature_domain=self._signature_domain,
-            enable_api_encryption=self._enable_api_encryption,
-            enable_asset_bundle_encryption=self._enable_asset_bundle_encryption,
-            enable_asset_bundle_info_encryption=self._enable_asset_bundle_info_encryption,
-            enable_game_version_encryption=self._enable_game_version_encryption,
-            enable_signature_encryption=self._enable_signature_encryption,
-            server_number=self._server_number,
-        )
+        await self._system_info.load()
+        await self._master_data.load()
+        await self._user_data.load()
+
+        update_app = False
+        async with self.system_info as system_info:
+            if system_info.app_version is None or system_info.app_hash is None:
+                update_app = True
+
+            if (
+                system_info.asset_version is not None
+                and system_info.asset_hash is not None
+                and self.asset_directory is not None
+            ):
+                self._asset = Asset(
+                    system_info.asset_version,
+                    system_info.asset_hash,
+                    self.asset_directory
+                )
+
+            self._api_manager = API(
+                platform=self._platform,
+                key=self._key,
+                iv=self._iv,
+                jwt_secret=self._jwt_secret,
+                system_info=system_info,
+                api_domain=self._api_domain or API.DEFAULT_API_DOMAIN,
+                asset_bundle_domain=self._asset_bundle_domain,
+                asset_bundle_info_domain=self._asset_bundle_info_domain,
+                game_version_domain=self._game_version_domain,
+                signature_domain=self._signature_domain,
+                enable_api_encryption=self._enable_api_encryption,
+                enable_asset_bundle_encryption=self._enable_asset_bundle_encryption,
+                enable_asset_bundle_info_encryption=self._enable_asset_bundle_info_encryption,
+                enable_game_version_encryption=self._enable_game_version_encryption,
+                enable_signature_encryption=self._enable_signature_encryption,
+                server_number=self._server_number,
+            )
 
         await self.refresh_signed_cookie()
 
         if self.api_manager.key is None or self.api_manager.iv is None:
             return
-
-        if self._system_info.app_version is None or self._system_info.app_hash is None:
+        
+        if update_app:
             await self.update_app()
 
         self.game_version = msgpack_converter.loads(
@@ -548,14 +732,13 @@ class Client:
     @_auto_update
     @_auto_session_refresh
     async def register(self) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.register()
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.register()
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     async def login(self, user_id: Union[int, str], credential: str) -> dict:
-        async with self.system_info as system_info, self._user_data_lock:
+        async with self.system_info as system_info:
             response: dict = await self.api_manager.authenticate(user_id, credential)
             self._user_id = user_id
             self._credential = credential
@@ -598,18 +781,17 @@ class Client:
                 ):
                     raise DataUpdateRequired(info.data_version, info.app_version_status.value)  # type: ignore
 
-            self._user_data = await self.api_manager.get_user_data(user_id)
-            self._update_user_resources(await self.api_manager.get_login_bonus(user_id))
+            await self.set_user_data(await self.api_manager.get_user_data(user_id))
+            await self._update_user_resources(await self.api_manager.get_login_bonus(user_id))
             return response
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def reload_user_data(self, name: Optional[str] = None) -> dict:
-        async with self._user_data_lock:
-            user_data = await self.api_manager.get_user_data(self.user_id, name)  # type: ignore[arg-type]
-            self._user_data = user_data
-            return user_data
+        user_data = await self.api_manager.get_user_data(self.user_id, name)  # type: ignore[arg-type]
+        await self.set_user_data(user_data)
+        return user_data
 
     @_auto_update
     @_auto_session_refresh
@@ -634,13 +816,13 @@ class Client:
                 if len(matching_app_version_info) > 0:
                     info: SystemInfo = matching_app_version_info[-1]
                     if info.system_profile != system_info.system_profile:
-                        self.system_info = SystemInfo(
+                        await self.set_system_info(SystemInfo(
                             system_profile=info.system_profile,
                             app_version=system_info.app_version,
                             app_hash=system_info.app_hash,
                             multi_play_version=system_info.multi_play_version,
                             app_version_status=info.app_version_status,
-                        )
+                        ))
                     status: str = "" if info.app_version_status is None else info.app_version_status.value  # type: ignore
                     asset_update_required: bool = (
                         system_info.asset_version != info.asset_version
@@ -709,45 +891,36 @@ class Client:
                 DataUpdateRequired,
             ):
                 return
-        async with self.system_info as system_info:
-            new_system_info = dataclasses.replace(
-                system_info,
-                app_version=app_version,
-                app_hash=app_hash,
-                multi_play_version=multi_play_version,
-            )
-            self.system_info = new_system_info
-            self.api_manager.system_info = new_system_info
+            
+        async with self.replace_system_info(
+            app_version=app_version,
+            app_hash=app_hash,
+            multi_play_version=multi_play_version,
+        ) as system_info:
+            self.api_manager.system_info = system_info
 
     @_auto_session_refresh
     async def update_data(self, data_version: str, app_version_status: str) -> None:
-        async with self._master_data_lock, self.system_info as system_info:
-            del self._master_data
-            response = await self.api_manager.get_master_data_packed(data_version)
-            self.master_data = msgpack_converter.loads(response, MasterData)
-            new_system_info = dataclasses.replace(
-                system_info,
-                data_version=data_version,
-                app_version_status=app_version_status,
-            )
-            self.system_info = new_system_info
-            self.api_manager.system_info = new_system_info
+        async with self.loads_master_data(await self.api_manager.get_master_data_packed(data_version)):
+            pass
+
+        async with self.replace_system_info(
+            data_version=data_version,
+            app_version_status=app_version_status,
+        ) as system_info:
+            self.api_manager.system_info = system_info
 
     @_auto_session_refresh
     async def update_asset(self, asset_version: str, asset_hash: str) -> None:
-        async with self.system_info as system_info:
-            if self.asset_directory is None:
-                self._asset = Asset(asset_version, asset_hash)
-            else:
-                self._asset = Asset(
-                    asset_version, asset_hash, str(self.asset_directory)
-                )
-            await self._asset.get_asset_bundle_info(self.api_manager)
-            new_system_info = dataclasses.replace(
-                system_info, asset_version=asset_version, asset_hash=asset_hash
+        if self.asset_directory is None:
+            self._asset = Asset(asset_version, asset_hash)
+        else:
+            self._asset = Asset(
+                asset_version, asset_hash, self.asset_directory
             )
-            self.system_info = new_system_info
-            self.api_manager.system_info = new_system_info
+        await self._asset.get_asset_bundle_info(self.api_manager)
+        async with self.replace_system_info(asset_version=asset_version, asset_hash=asset_hash) as system_info:
+            self.api_manager.system_info = system_info
 
     async def update_all(self) -> bool:
         try:
@@ -801,12 +974,11 @@ class Client:
     @_auth_required
     @_auto_session_refresh
     async def transfer_out(self, password: str) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.generate_transfer_code(
-                self.user_id,  # type: ignore[arg-type]
-                password,
-            )
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.generate_transfer_code(
+            self.user_id,  # type: ignore[arg-type]
+            password,
+        )
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
@@ -830,26 +1002,25 @@ class Client:
     @_auto_session_refresh
     @_auth_required
     async def advance_tutorial(self, unit: Unit = Unit.LN) -> dict:
-        async with self.user_data as user_data, self._user_data_lock:
+        async with self.user_data as user_data:
             current_tutorial_status: TutorialStatus = TutorialStatus(
                 user_data["userTutorial"]["tutorialStatus"]
             )
-            response: dict = await self.api_manager.set_tutorial_status(
-                self.user_id,  # type: ignore[arg-type]
-                current_tutorial_status.next(unit),
-            )
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.set_tutorial_status(
+            self.user_id,  # type: ignore[arg-type]
+            current_tutorial_status.next(unit),
+        )
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def receive_present(self, present_id) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.receive_presents(
-                self.user_id,  # type: ignore[arg-type]
-                [present_id],
-            )
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.receive_presents(
+            self.user_id,  # type: ignore[arg-type]
+            [present_id],
+        )
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
@@ -860,62 +1031,59 @@ class Client:
                 self.user_id,  # type: ignore[arg-type]
                 [present["presentId"] for present in user_data["userPresents"]],
             )
-            return self._update_user_resources(response)
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def gacha(self, gacha_id: int, gach_behavior_id: int) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.gacha(
-                self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
-            )
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.gacha(
+            self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
+        )
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def start_solo_live(self, live: SoloLive):
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.start_solo_live(
-                self.user_id,  # type: ignore[arg-type]
-                live.music_id,
-                live.music_difficulty_id,
-                live.music_vocal_id,
-                live.deck_id,
-                live.boost_count,
-                live.is_auto,
-            )
-            live.start(
-                response["userLiveId"], response["skills"], response["comboCutins"]
-            )
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.start_solo_live(
+            self.user_id,  # type: ignore[arg-type]
+            live.music_id,
+            live.music_difficulty_id,
+            live.music_vocal_id,
+            live.deck_id,
+            live.boost_count,
+            live.is_auto,
+        )
+        live.start(
+            response["userLiveId"], response["skills"], response["comboCutins"]
+        )
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def end_solo_live(self, live: SoloLive) -> dict:
-        async with self._user_data_lock:
-            if not live.is_active or live.live_id is None:
-                raise LiveNotActive
-            if live.life <= 0:
-                raise LiveDead
-            response: dict = await self.api_manager.end_solo_live(
-                self.user_id,  # type: ignore[arg-type]
-                live.live_id,
-                live.score,
-                live.perfect_count,
-                live.great_count,
-                live.good_count,
-                live.bad_count,
-                live.miss_count,
-                live.max_combo,
-                live.life,
-                live.tap_count,
-                live.continue_count,
-            )
-            live.end()
-            return self._update_user_resources(response)
+        if not live.is_active or live.live_id is None:
+            raise LiveNotActive
+        if live.life <= 0:
+            raise LiveDead
+        response: dict = await self.api_manager.end_solo_live(
+            self.user_id,  # type: ignore[arg-type]
+            live.live_id,
+            live.score,
+            live.perfect_count,
+            live.great_count,
+            live.good_count,
+            live.bad_count,
+            live.miss_count,
+            live.max_combo,
+            live.life,
+            live.tap_count,
+            live.continue_count,
+        )
+        live.end()
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
@@ -977,30 +1145,26 @@ class Client:
     async def send_friend_request(
         self, user_id: Union[int, str], message: Optional[str] = None
     ) -> None:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.send_friend_request(self.user_id, user_id, message)  # type: ignore[arg-type]
-            self._update_user_resources(response)
+        response: dict = await self.api_manager.send_friend_request(self.user_id, user_id, message)  # type: ignore[arg-type]
+        await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def reject_friend_request(self, request_user_id: Union[int, str]) -> None:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.reject_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
-            self._update_user_resources(response)
+        response: dict = await self.api_manager.reject_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+        await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def accept_friend_request(self, request_user_id: Union[int, str]) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.accept_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.accept_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+        return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def remove_friend(self, friend_user_id: Union[int, str]) -> dict:
-        async with self._user_data_lock:
-            response: dict = await self.api_manager.remove_friend(self.user_id, friend_user_id)  # type: ignore[arg-type]
-            return self._update_user_resources(response)
+        response: dict = await self.api_manager.remove_friend(self.user_id, friend_user_id)  # type: ignore[arg-type]
+        return await self._update_user_resources(response)

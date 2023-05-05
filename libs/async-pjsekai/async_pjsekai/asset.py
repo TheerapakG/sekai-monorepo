@@ -51,14 +51,13 @@ class Asset:
                 f.write(msgpack_converter.dumps(new_value, AssetBundleInfo))
 
     def __init__(
-        self, version: str, hash: str, asset_directory: Optional[str] = None
+        self, version: str, hash: str, asset_directory: Optional[Path] = None
     ) -> None:
         self._path = None
         if asset_directory is not None:
-            p = Path(asset_directory)
-            if p.exists() and not p.is_dir():
+            if asset_directory.exists() and not asset_directory.is_dir():
                 raise NotADirectoryError
-            self._path = p
+            self._path = asset_directory
 
         self._version = version
         self._hash = hash
