@@ -59,15 +59,22 @@ class SystemInfoMutex:
     async def __aenter__(self):
         await self._lock.acquire()
         return self._system_info
-    
-    async def __aexit__(self,
+
+    async def __aexit__(
+        self,
         exc_type: Optional[Type[BaseException]],
         exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType]
+        exc_tb: Optional[TracebackType],
     ):
         self._lock.release()
 
-    async def _loads(self, data: bytes, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+    async def _loads(
+        self,
+        data: bytes,
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        multi_play_version: Optional[str] = None,
+    ):
         del self._system_info
         await self._set_value(msgpack_converter.loads(data, SystemInfo))
         if app_version is not None and app_hash is not None:
@@ -78,17 +85,56 @@ class SystemInfoMutex:
             )
 
     @asynccontextmanager
-    async def loads(self, data: bytes, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+    async def loads(
+        self,
+        data: bytes,
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        multi_play_version: Optional[str] = None,
+    ):
         async with self._lock:
             await self._loads(data, app_version, app_hash, multi_play_version)
             yield self._system_info
 
-    async def load(self, app_version: Optional[str] = None, app_hash: Optional[str] = None, multi_play_version: Optional[str] = None):
+    async def _loads_coro(
+        self,
+        data: Coroutine[None, None, bytes],
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        multi_play_version: Optional[str] = None,
+    ):
+        self._system_info = SystemInfo().create()
+        await self._set_value(msgpack_converter.loads(await data, SystemInfo))
+        if app_version is not None and app_hash is not None:
+            await self._replace_value(
+                app_version=app_version,
+                app_hash=app_hash,
+                multi_play_version=multi_play_version,
+            )
+
+    @asynccontextmanager
+    async def loads_coro(
+        self,
+        data: Coroutine[None, None, bytes],
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        multi_play_version: Optional[str] = None,
+    ):
+        async with self._lock:
+            await self._loads_coro(data, app_version, app_hash, multi_play_version)
+            yield self._system_info
+
+    async def load(
+        self,
+        app_version: Optional[str] = None,
+        app_hash: Optional[str] = None,
+        multi_play_version: Optional[str] = None,
+    ):
         async with self._lock:
             if self.system_info_file_path is not None:
                 try:
                     async with aiofiles.open(self.system_info_file_path, "rb") as f:
-                        await self._loads(await f.read())
+                        await self._loads_coro(f.read())
                 except FileNotFoundError:
                     await self._set_value(SystemInfo.create())
             else:
@@ -103,15 +149,17 @@ class SystemInfoMutex:
 
     async def _write(self):
         if self.system_info_file_path is not None:
-            self.system_info_file_path.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = self.system_info_file_path.with_suffix(self.system_info_file_path.suffix + ".tmp")
+            await aiofiles.os.makedirs(self.system_info_file_path.parent, exist_ok=True)
+            temp_path = self.system_info_file_path.with_suffix(
+                self.system_info_file_path.suffix + ".tmp"
+            )
             async with aiofiles.open(temp_path, "wb") as f:
                 await f.write(msgpack_converter.dumps(self._system_info, SystemInfo))
             await aiofiles.os.replace(temp_path, self.system_info_file_path)
 
     async def _set_value(self, new_value: SystemInfo):
         self._system_info = new_value
-        await self._write()            
+        await self._write()
 
     async def set_value(self, new_value: SystemInfo):
         async with self._lock:
@@ -120,12 +168,13 @@ class SystemInfoMutex:
     async def _replace_value(self, **changes):
         self._system_info = dataclasses.replace(self._system_info, **changes)
         await self._write()
-        return self._system_info 
+        return self._system_info
 
     @asynccontextmanager
     async def replace_value(self, **changes):
         async with self._lock:
             yield await self._replace_value(**changes)
+
 
 class MasterDataMutex:
     _lock: Lock
@@ -144,11 +193,12 @@ class MasterDataMutex:
     async def __aenter__(self):
         await self._lock.acquire()
         return self._master_data
-    
-    async def __aexit__(self,
+
+    async def __aexit__(
+        self,
         exc_type: Optional[Type[BaseException]],
         exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType]
+        exc_tb: Optional[TracebackType],
     ):
         self._lock.release()
 
@@ -162,12 +212,22 @@ class MasterDataMutex:
             await self._loads(data)
             yield self._master_data
 
+    async def _loads_coro(self, data: Coroutine[None, None, bytes]):
+        self._master_data = MasterData.create()
+        await self._set_value(msgpack_converter.loads(await data, MasterData))
+
+    @asynccontextmanager
+    async def loads_coro(self, data: Coroutine[None, None, bytes]):
+        async with self._lock:
+            await self._loads_coro(data)
+            yield self._master_data
+
     async def load(self):
         async with self._lock:
             if self.master_data_file_path is not None:
                 try:
                     async with aiofiles.open(self.master_data_file_path, "rb") as f:
-                        await self._loads(await f.read())
+                        await self._loads_coro(f.read())
                 except FileNotFoundError:
                     await self._set_value(MasterData.create())
             else:
@@ -175,19 +235,22 @@ class MasterDataMutex:
 
     async def _write(self):
         if self.master_data_file_path is not None:
-            self.master_data_file_path.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = self.master_data_file_path.with_suffix(self.master_data_file_path.suffix + ".tmp")
+            await aiofiles.os.makedirs(self.master_data_file_path.parent, exist_ok=True)
+            temp_path = self.master_data_file_path.with_suffix(
+                self.master_data_file_path.suffix + ".tmp"
+            )
             async with aiofiles.open(temp_path, "wb") as f:
                 await f.write(msgpack_converter.dumps(self._master_data, MasterData))
             await aiofiles.os.replace(temp_path, self.master_data_file_path)
 
     async def _set_value(self, new_value: MasterData):
         self._master_data = new_value
-        await self._write()            
+        await self._write()
 
     async def set_value(self, new_value: MasterData):
         async with self._lock:
             await self._set_value(new_value)
+
 
 class UserDataMutex:
     _lock: Lock
@@ -206,11 +269,12 @@ class UserDataMutex:
     async def __aenter__(self):
         await self._lock.acquire()
         return self._user_data
-    
-    async def __aexit__(self,
+
+    async def __aexit__(
+        self,
         exc_type: Optional[Type[BaseException]],
         exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType]
+        exc_tb: Optional[TracebackType],
     ):
         self._lock.release()
 
@@ -227,30 +291,30 @@ class UserDataMutex:
 
     async def _write(self):
         if self.user_data_file_path is not None:
-            self.user_data_file_path.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = self.user_data_file_path.with_suffix(self.user_data_file_path.suffix + ".tmp")
+            await aiofiles.os.makedirs(self.user_data_file_path.parent, exist_ok=True)
+            temp_path = self.user_data_file_path.with_suffix(
+                self.user_data_file_path.suffix + ".tmp"
+            )
             async with aiofiles.open(temp_path, "w") as f:
                 await f.write(dumps(self._user_data, indent=2, ensure_ascii=False))
             await aiofiles.os.replace(temp_path, self.user_data_file_path)
 
     async def _set_value(self, new_value: dict):
         self._user_data = new_value
-        await self._write()            
+        await self._write()
 
     async def set_value(self, new_value: dict):
         async with self._lock:
             await self._set_value(new_value)
 
     async def _update_value(self, update: dict):
-        self._user_data = {
-            **self._user_data,
-            **update
-        }
-        await self._write()            
+        self._user_data = {**self._user_data, **update}
+        await self._write()
 
     async def update_value(self, update: dict):
         async with self._lock:
             await self._update_value(update)
+
 
 class Client:
     def _auth_required(func: Callable[Concatenate["Client", P], R]) -> Callable[Concatenate["Client", P], R]:  # type: ignore[misc]
@@ -377,6 +441,11 @@ class Client:
         async with self._system_info.loads(data) as system_info:
             yield system_info
 
+    @asynccontextmanager
+    async def loads_coro_system_info(self, data: Coroutine[None, None, bytes]):
+        async with self._system_info.loads_coro(data) as system_info:
+            yield system_info
+
     async def set_system_info(self, new_value: SystemInfo):
         await self._system_info.set_value(new_value)
 
@@ -396,6 +465,11 @@ class Client:
     @asynccontextmanager
     async def loads_master_data(self, data: bytes):
         async with self._master_data.loads(data) as master_data:
+            yield master_data
+
+    @asynccontextmanager
+    async def loads_coro_master_data(self, data: Coroutine[None, None, bytes]):
+        async with self._master_data.loads_coro(data) as master_data:
             yield master_data
 
     async def set_master_data(self, new_value: MasterData):
@@ -682,8 +756,10 @@ class Client:
                 self._asset = Asset(
                     system_info.asset_version,
                     system_info.asset_hash,
-                    self.asset_directory
+                    self.asset_directory,
                 )
+
+                await self._asset.load()
 
             self._api_manager = API(
                 platform=self._platform,
@@ -708,7 +784,7 @@ class Client:
 
         if self.api_manager.key is None or self.api_manager.iv is None:
             return
-        
+
         if update_app:
             await self.update_app()
 
@@ -782,7 +858,9 @@ class Client:
                     raise DataUpdateRequired(info.data_version, info.app_version_status.value)  # type: ignore
 
             await self.set_user_data(await self.api_manager.get_user_data(user_id))
-            await self._update_user_resources(await self.api_manager.get_login_bonus(user_id))
+            await self._update_user_resources(
+                await self.api_manager.get_login_bonus(user_id)
+            )
             return response
 
     @_auto_update
@@ -816,13 +894,15 @@ class Client:
                 if len(matching_app_version_info) > 0:
                     info: SystemInfo = matching_app_version_info[-1]
                     if info.system_profile != system_info.system_profile:
-                        await self.set_system_info(SystemInfo(
-                            system_profile=info.system_profile,
-                            app_version=system_info.app_version,
-                            app_hash=system_info.app_hash,
-                            multi_play_version=system_info.multi_play_version,
-                            app_version_status=info.app_version_status,
-                        ))
+                        await self.set_system_info(
+                            SystemInfo(
+                                system_profile=info.system_profile,
+                                app_version=system_info.app_version,
+                                app_hash=system_info.app_hash,
+                                multi_play_version=system_info.multi_play_version,
+                                app_version_status=info.app_version_status,
+                            )
+                        )
                     status: str = "" if info.app_version_status is None else info.app_version_status.value  # type: ignore
                     asset_update_required: bool = (
                         system_info.asset_version != info.asset_version
@@ -891,7 +971,7 @@ class Client:
                 DataUpdateRequired,
             ):
                 return
-            
+
         async with self.replace_system_info(
             app_version=app_version,
             app_hash=app_hash,
@@ -901,7 +981,9 @@ class Client:
 
     @_auto_session_refresh
     async def update_data(self, data_version: str, app_version_status: str) -> None:
-        async with self.loads_master_data(await self.api_manager.get_master_data_packed(data_version)):
+        async with self.loads_coro_master_data(
+            self.api_manager.get_master_data_packed(data_version)
+        ):
             pass
 
         async with self.replace_system_info(
@@ -915,11 +997,11 @@ class Client:
         if self.asset_directory is None:
             self._asset = Asset(asset_version, asset_hash)
         else:
-            self._asset = Asset(
-                asset_version, asset_hash, self.asset_directory
-            )
+            self._asset = Asset(asset_version, asset_hash, self.asset_directory)
         await self._asset.get_asset_bundle_info(self.api_manager)
-        async with self.replace_system_info(asset_version=asset_version, asset_hash=asset_hash) as system_info:
+        async with self.replace_system_info(
+            asset_version=asset_version, asset_hash=asset_hash
+        ) as system_info:
             self.api_manager.system_info = system_info
 
     async def update_all(self) -> bool:
@@ -1055,9 +1137,7 @@ class Client:
             live.boost_count,
             live.is_auto,
         )
-        live.start(
-            response["userLiveId"], response["skills"], response["comboCutins"]
-        )
+        live.start(response["userLiveId"], response["skills"], response["comboCutins"])
         return await self._update_user_resources(response)
 
     @_auto_update

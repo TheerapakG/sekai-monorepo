@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: MIT
 
+import aiofiles
+import aiofiles.os
+import asyncio
 from collections import defaultdict
 from dataclasses import astuple
 import discord
@@ -42,6 +45,7 @@ from jycm.jycm import YouchamaJsonDiffer
 
 import UnityPy
 import UnityPy.config
+import UnityPy.files
 from UnityPy.tools.extractor import EXPORT_TYPES, export_obj
 
 UnityPy.config.FALLBACK_UNITY_VERSION = Platform.ANDROID.unity_version
@@ -56,7 +60,41 @@ def defaulted_export_index(type):
         return 999
 
 
+async def extract_acb_bytes(path: Path):
+    async with aiofiles.open(path, "rb") as src, aiofiles.open(
+        path.with_suffix(""), "wb"
+    ) as dst:
+        await aiofiles.os.sendfile(
+            dst.fileno(), src.fileno(), 0, (await aiofiles.os.stat(path)).st_size
+        )
+    process = await asyncio.subprocess.create_subprocess_exec(
+        "/usr/bin/vgmstream-cli",
+        "-o",
+        path.parent / "?n.wav",
+        "-S",
+        "0",
+        path.with_suffix(""),
+    )
+    return await process.wait()
+
+
+async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
+    print(f"extracting {path}")
+
+    dst = directory / path
+    await aiofiles.os.makedirs(dst.parent, exist_ok=True)
+
+    export_obj(obj, dst)  # type: ignore
+
+    match dst.suffixes:
+        case [".acb", ".bytes"]:
+            await extract_acb_bytes(dst)
+
+
 class PjskClientCog(Cog):
+    client: BotClient
+    pjsk_client: Client
+
     def __init__(self, client: BotClient) -> None:
         super().__init__()
 
@@ -175,94 +213,77 @@ class PjskClientCog(Cog):
             asset := self.pjsk_client.asset
         ):
             async with asset.asset_bundle_info as asset_bundle_info:
+                bundle_hash = None
                 if asset_bundle_info and (bundles := asset_bundle_info.bundles):
-                    bundle_hash = (
-                        bundles[asset_bundle_str].hash
-                        if asset_bundle_str in bundles
-                        else None
-                    )
-                    if not bundle_hash:
-                        bundle_hash = ""
+                    if asset_bundle_str in bundles:
+                        bundle_hash = bundles[asset_bundle_str].hash
 
-                    if (directory / "bundle" / f"{asset_bundle_str}.unity3d").exists():
-                        try:
-                            with open(directory / "hash" / asset_bundle_str, "r") as f:
-                                if f.read() == bundle_hash and not force:
-                                    print(f"bundle {asset_bundle_str} already updated")
-                                    with open(
-                                        directory / "path" / asset_bundle_str, "r"
-                                    ) as f:
-                                        return f.readlines()
-                        except FileNotFoundError:
-                            pass
+            if bundle_hash is None:
+                bundle_hash = ""
 
-                        print(f"updating bundle {asset_bundle_str}")
-                    else:
-                        print(f"downloading bundle {asset_bundle_str}")
+            if force:
+                print(f"downloading bundle {asset_bundle_str}")
+            else:
+                try:
+                    async with aiofiles.open(
+                        directory / "hash" / asset_bundle_str, "r"
+                    ) as f:
+                        if await f.read() == bundle_hash:
+                            print(f"bundle {asset_bundle_str} already updated")
+                            async with aiofiles.open(
+                                directory / "path" / asset_bundle_str, "r"
+                            ) as f:
+                                return await f.readlines()
+                        else:
+                            print(f"updating bundle {asset_bundle_str}")
+                except FileNotFoundError:
+                    print(f"downloading bundle {asset_bundle_str}")
 
-                    paths: list[str] = []
+            paths: list[str] = []
+            tasks: list[asyncio.Task] = []
 
-                    async with self.pjsk_client.api_manager.download_asset_bundle(
-                        asset_bundle_str
-                    ) as asset_bundle:
-                        (directory / "bundle" / asset_bundle_str).parent.mkdir(
-                            parents=True, exist_ok=True
-                        )
-                        with open(
-                            directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb"
-                        ) as f:
-                            async for chunk in asset_bundle.chunks:
-                                f.write(chunk)
+            async with self.pjsk_client.api_manager.download_asset_bundle(
+                asset_bundle_str
+            ) as asset_bundle:
+                await aiofiles.os.makedirs(
+                    (directory / "bundle" / asset_bundle_str).parent, exist_ok=True
+                )
+                async with aiofiles.open(
+                    directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb"
+                ) as f:
+                    async for chunk in asset_bundle.chunks:
+                        await f.write(chunk)
 
-                        env = UnityPy.load(
-                            str(directory / "bundle" / f"{asset_bundle_str}.unity3d")
-                        )
-                        container = sorted(
-                            env.container.items(),
-                            key=lambda x: defaulted_export_index(x[1].type),
-                        )
+            env = UnityPy.load(
+                str(directory / "bundle" / f"{asset_bundle_str}.unity3d")
+            )
+            container = sorted(
+                env.container.items(),
+                key=lambda x: defaulted_export_index(x[1].type),
+            )
 
-                        for obj_path, obj in container:
-                            obj_path = "/".join(x for x in obj_path.split("/") if x)
-                            obj_dest = directory / obj_path
-                            obj_dest.parent.mkdir(parents=True, exist_ok=True)
+            await aiofiles.os.makedirs(
+                (directory / "path" / asset_bundle_str).parent, exist_ok=True
+            )
+            async with aiofiles.open(directory / "path" / asset_bundle_str, "w") as f:
+                for obj_path, obj in container:
+                    obj_path = "/".join(x for x in obj_path.split("/") if x)
+                    paths.append(obj_path)
+                    await f.write(obj_path + "\n")
 
-                            paths.append(obj_path)
+                    tasks.append(asyncio.create_task(extract(directory, obj_path, obj)))
 
-                            print(f"extracting {obj_path}")
+            await asyncio.gather(*tasks)
 
-                            export_obj(
-                                obj,  # type: ignore
-                                obj_dest,
-                            )
+            await aiofiles.os.makedirs(
+                (directory / "hash" / asset_bundle_str).parent, exist_ok=True
+            )
+            async with aiofiles.open(directory / "hash" / asset_bundle_str, "w") as f:
+                await f.write(bundle_hash)
 
-                            if obj_dest.suffixes == [".acb", ".bytes"]:
-                                shutil.copy(obj_dest, obj_dest.with_suffix(""))
-                                subprocess.run(
-                                    [
-                                        "./vgmstream-cli",
-                                        "-o",
-                                        obj_dest.parent / "?n.wav",
-                                        "-S",
-                                        "0",
-                                        obj_dest.with_suffix(""),
-                                    ]
-                                )
+            print(f"updated bundle {asset_bundle_str}")
+            return paths
 
-                    (directory / "path" / asset_bundle_str).parent.mkdir(
-                        parents=True, exist_ok=True
-                    )
-                    with open(directory / "path" / asset_bundle_str, "w") as f:
-                        f.writelines(paths)
-
-                    (directory / "hash" / asset_bundle_str).parent.mkdir(
-                        parents=True, exist_ok=True
-                    )
-                    with open(directory / "hash" / asset_bundle_str, "w") as f:
-                        f.write(bundle_hash)
-
-                    print(f"updated bundle {asset_bundle_str}")
-                    return paths
         return []
 
     async def add_music_embed_thumbnail(self, music: MusicData, embed: discord.Embed):
