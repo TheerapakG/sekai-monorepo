@@ -826,6 +826,8 @@ class Client:
         if self._update_all_on_init:
             await self.update_all()
 
+        log.info("client is ready")
+
     async def close(self):
         await self.api_manager.close()
 
@@ -1001,6 +1003,7 @@ class Client:
             app_hash=app_hash,
             multi_play_version=multi_play_version,
         ) as system_info:
+            log.info(f"updated app: {app_version}")
             self.api_manager.system_info = system_info
 
     @_auto_session_refresh
@@ -1014,6 +1017,7 @@ class Client:
             data_version=data_version,
             app_version_status=app_version_status,
         ) as system_info:
+            log.info(f"updated data: {data_version}")
             self.api_manager.system_info = system_info
 
     @_auto_session_refresh
@@ -1022,11 +1026,13 @@ class Client:
             self._asset = Asset(asset_version, asset_hash)
         else:
             self._asset = Asset(asset_version, asset_hash, self.asset_directory)
+
         async with self._asset.get_asset_bundle_info(
             self.api_manager
         ), self.replace_system_info(
             asset_version=asset_version, asset_hash=asset_hash
         ) as system_info:
+            log.info(f"updated asset: {asset_version}")
             self.api_manager.system_info = system_info
 
     async def update_all(self) -> bool:
