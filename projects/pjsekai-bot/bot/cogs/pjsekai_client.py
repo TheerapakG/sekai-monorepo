@@ -236,7 +236,7 @@ class PjskClientCog(Cog):
                             async with aiofiles.open(
                                 directory / "path" / asset_bundle_str, "r"
                             ) as f:
-                                return await f.readlines()
+                                return (await f.read()).splitlines()
                         else:
                             print(f"updating bundle {asset_bundle_str}")
                 except FileNotFoundError:
