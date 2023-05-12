@@ -10,6 +10,7 @@ from asyncio.locks import Lock
 from contextlib import asynccontextmanager
 import dataclasses
 from functools import wraps
+import logging
 from types import TracebackType
 from typing import AsyncIterator, Coroutine, Callable, Optional, Type, TypeVar, Union
 from typing_extensions import ParamSpec, Concatenate
@@ -40,6 +41,9 @@ from .models.converters import msgpack_converter
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+log = logging.getLogger(__name__)
 
 
 class SystemInfoMutex:
@@ -159,6 +163,9 @@ class SystemInfoMutex:
 
     async def _set_value(self, new_value: SystemInfo):
         self._system_info = new_value
+        log.info(
+            f"system version: app: {new_value.app_version} multi play: {new_value.multi_play_version} data: {new_value.data_version} asset: {new_value.asset_version}"
+        )
         await self._write()
 
     async def set_value(self, new_value: SystemInfo):

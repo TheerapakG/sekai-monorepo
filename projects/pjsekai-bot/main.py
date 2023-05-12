@@ -15,7 +15,7 @@ from bot.cogs.music import MusicCog
 async def async_main():
     load_dotenv()
 
-    discord.utils.setup_logging(root=False)
+    discord.utils.setup_logging(root=True)
 
     intents = discord.Intents.default()
     client = BotClient(intents=intents)
