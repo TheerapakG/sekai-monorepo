@@ -920,7 +920,7 @@ class Client:
                 if len(matching_app_version_info) > 0:
                     info: SystemInfo = matching_app_version_info[-1]
                     if info.system_profile != system_info.system_profile:
-                        await self.set_system_info(
+                        await self._system_info._set_value(
                             SystemInfo(
                                 system_profile=info.system_profile,
                                 app_version=system_info.app_version,
