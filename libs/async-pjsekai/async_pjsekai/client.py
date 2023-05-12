@@ -174,6 +174,9 @@ class SystemInfoMutex:
 
     async def _replace_value(self, **changes):
         self._system_info = dataclasses.replace(self._system_info, **changes)
+        log.info(
+            f"system version: app: {self._system_info.app_version} multi play: {self._system_info.multi_play_version} data: {self._system_info.data_version} asset: {self._system_info.asset_version}"
+        )
         await self._write()
         return self._system_info
 
