@@ -178,13 +178,23 @@ class SystemInfoMutex:
 
 class MasterDataMutex:
     _lock: Lock
+    _sync: bool
     _master_data: MasterData
     _master_data_file_path: Optional[Path]
 
     def __init__(self, master_data_file_path: Optional[Path]) -> None:
         self._lock = Lock()
+        self._sync = False
         self._master_data = MasterData().create()
         self._master_data_file_path = master_data_file_path
+
+    @property
+    def sync(self):
+        return self._sync
+
+    @property
+    def master_data(self):
+        return self._master_data
 
     @property
     def master_data_file_path(self):
@@ -192,7 +202,7 @@ class MasterDataMutex:
 
     async def __aenter__(self):
         await self._lock.acquire()
-        return self._master_data
+        return self._master_data, self._sync
 
     async def __aexit__(
         self,
@@ -202,24 +212,26 @@ class MasterDataMutex:
     ):
         self._lock.release()
 
-    async def _loads(self, data: bytes):
+    async def _loads(self, data: bytes, write=True):
         del self._master_data
-        await self._set_value(msgpack_converter.loads(data, MasterData))
+        await self._set_value(msgpack_converter.loads(data, MasterData), write=write)
 
     @asynccontextmanager
-    async def loads(self, data: bytes):
+    async def loads(self, data: bytes, write=True):
         async with self._lock:
-            await self._loads(data)
+            await self._loads(data, write=write)
             yield self._master_data
 
-    async def _loads_coro(self, data: Coroutine[None, None, bytes]):
+    async def _loads_coro(self, data: Coroutine[None, None, bytes], write=True):
         self._master_data = MasterData.create()
-        await self._set_value(msgpack_converter.loads(await data, MasterData))
+        await self._set_value(
+            msgpack_converter.loads(await data, MasterData), write=write
+        )
 
     @asynccontextmanager
-    async def loads_coro(self, data: Coroutine[None, None, bytes]):
+    async def loads_coro(self, data: Coroutine[None, None, bytes], write=True):
         async with self._lock:
-            await self._loads_coro(data)
+            await self._loads_coro(data, write=write)
             yield self._master_data
 
     async def load(self):
@@ -227,7 +239,8 @@ class MasterDataMutex:
             if self.master_data_file_path is not None:
                 try:
                     async with aiofiles.open(self.master_data_file_path, "rb") as f:
-                        await self._loads_coro(f.read())
+                        await self._loads_coro(f.read(), write=False)
+                        self._sync = True
                 except FileNotFoundError:
                     await self._set_value(MasterData.create())
             else:
@@ -243,13 +256,15 @@ class MasterDataMutex:
                 await f.write(msgpack_converter.dumps(self._master_data, MasterData))
             await aiofiles.os.replace(temp_path, self.master_data_file_path)
 
-    async def _set_value(self, new_value: MasterData):
+    async def _set_value(self, new_value: MasterData, write=True):
         self._master_data = new_value
-        await self._write()
+        self._sync = write
+        if write:
+            await self._write()
 
-    async def set_value(self, new_value: MasterData):
+    async def set_value(self, new_value: MasterData, write=True):
         async with self._lock:
-            await self._set_value(new_value)
+            await self._set_value(new_value, write=write)
 
 
 class UserDataMutex:
@@ -459,21 +474,23 @@ class Client:
     @property
     @asynccontextmanager
     async def master_data(self):
-        async with self._master_data as master_data:
+        async with self._master_data as (master_data, sync):
+            yield master_data, sync
+
+    @asynccontextmanager
+    async def loads_master_data(self, data: bytes, write=True):
+        async with self._master_data.loads(data, write=write) as master_data:
             yield master_data
 
     @asynccontextmanager
-    async def loads_master_data(self, data: bytes):
-        async with self._master_data.loads(data) as master_data:
+    async def loads_coro_master_data(
+        self, data: Coroutine[None, None, bytes], write=True
+    ):
+        async with self._master_data.loads_coro(data, write=write) as master_data:
             yield master_data
 
-    @asynccontextmanager
-    async def loads_coro_master_data(self, data: Coroutine[None, None, bytes]):
-        async with self._master_data.loads_coro(data) as master_data:
-            yield master_data
-
-    async def set_master_data(self, new_value: MasterData):
-        await self._master_data.set_value(new_value)
+    async def set_master_data(self, new_value: MasterData, write=True):
+        await self._master_data.set_value(new_value, write=write)
 
     _user_data: UserDataMutex
 
@@ -998,8 +1015,9 @@ class Client:
             self._asset = Asset(asset_version, asset_hash)
         else:
             self._asset = Asset(asset_version, asset_hash, self.asset_directory)
-        await self._asset.get_asset_bundle_info(self.api_manager)
-        async with self.replace_system_info(
+        async with self._asset.get_asset_bundle_info(
+            self.api_manager
+        ), self.replace_system_info(
             asset_version=asset_version, asset_hash=asset_hash
         ) as system_info:
             self.api_manager.system_info = system_info

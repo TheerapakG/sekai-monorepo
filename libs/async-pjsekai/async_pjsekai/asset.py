@@ -7,9 +7,9 @@ import aiofiles
 import aiofiles.os
 from asyncio.locks import Lock
 from contextlib import asynccontextmanager
-from types import TracebackType
-from typing import Coroutine, Optional, Type
 from pathlib import Path
+from types import TracebackType
+from typing import AsyncIterator, Coroutine, Optional, Type
 
 from async_pjsekai.api import API
 from async_pjsekai.models.asset_bundle_info import AssetBundleInfo
@@ -154,8 +154,11 @@ class Asset:
     async def load(self):
         await self._asset_bundle_info.load()
 
-    async def get_asset_bundle_info(self, api_manager: API) -> AssetBundleInfo:
+    @asynccontextmanager
+    async def get_asset_bundle_info(
+        self, api_manager: API
+    ) -> AsyncIterator[AssetBundleInfo]:
         async with self._asset_bundle_info.loads_coro(
             api_manager.get_asset_bundle_info_packed(self._version)
         ) as asset_bundle_info:
-            return asset_bundle_info
+            yield asset_bundle_info

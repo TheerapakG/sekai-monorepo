@@ -24,6 +24,7 @@ from async_pjsekai.enums.platform import Platform
 from async_pjsekai.enums.unknown import Unknown
 from async_pjsekai.models.master_data import (
     GameCharacter,
+    MasterData,
     Music,
     MusicDifficulty,
     MusicVocal,
@@ -31,8 +32,6 @@ from async_pjsekai.models.master_data import (
     ReleaseCondition,
     ResourceBox,
 )
-import shutil
-import subprocess
 
 from ..bot.client import BOT_VERSION, BotClient
 from ..models.music import MusicData
@@ -127,20 +126,24 @@ class PjskClientCog(Cog):
     async def cog_load(self):
         await self.pjsk_client.start()
         update = False
-        async with self.pjsk_client.master_data as master_data:
+        async with self.pjsk_client.master_data as (master_data, sync):
             if not any(astuple(master_data)):
                 update = True
         if update:
             await self.pjsk_client.update_all()
         await self.prepare_data_dicts()
-        self.diff_musics.start()
+        await self.pjsk_client.set_master_data(MasterData.create(), write=False)
+        self.update_data.start()
 
     async def cog_unload(self):
-        self.diff_musics.cancel()
+        self.update_data.cancel()
         await self.pjsk_client.close()
 
     async def prepare_data_dicts(self):
-        async with self.pjsk_client.master_data as master_data:
+        async with self.pjsk_client.master_data as (master_data, sync):
+            if not sync:
+                return
+
             self.musics_dict.clear()
             if musics := master_data.musics:
                 for music in musics:
@@ -383,34 +386,40 @@ class PjskClientCog(Cog):
             asset_bundle_name=music.asset_bundle_name,
         )
 
-    @tasks.loop(seconds=60)
-    async def diff_musics(self):
-        musics = self.musics_dict.copy()
+    async def diff_musics(self, old_musics: dict[int, Music]):
+        new_musics = self.musics_dict.copy()
 
-        if await self.pjsk_client.update_all():
-            await self.prepare_data_dicts()
-            new_musics = self.musics_dict.copy()
-
-            musics_diff = YouchamaJsonDiffer(musics, new_musics).get_diff()
-            if "dict:add" in musics_diff:
-                for diff in musics_diff["dict:add"]:
-                    if len(diff["right_path"]) == 1:
-                        music: Music = diff["right"]
-                        music_data = self.music_data_from_music(music)
-                        if announce_channel := self.client.announce_channel:
-                            out_embed = discord.Embed(title=f"new music found!")
-                            out_embed.set_footer(text=BOT_VERSION)
-                            out_embed_file = await self.add_music_embed_fields(
-                                music_data, out_embed, set_title=False
+        musics_diff = YouchamaJsonDiffer(old_musics, new_musics).get_diff()
+        if "dict:add" in musics_diff:
+            for diff in musics_diff["dict:add"]:
+                if len(diff["right_path"]) == 1:
+                    music: Music = diff["right"]
+                    music_data = self.music_data_from_music(music)
+                    if announce_channel := self.client.announce_channel:
+                        out_embed = discord.Embed(title=f"new music found!")
+                        out_embed.set_footer(text=BOT_VERSION)
+                        out_embed_file = await self.add_music_embed_fields(
+                            music_data, out_embed, set_title=False
+                        )
+                        if out_embed_file:
+                            await announce_channel.send(
+                                file=out_embed_file, embed=out_embed
                             )
-                            if out_embed_file:
-                                await announce_channel.send(
-                                    file=out_embed_file, embed=out_embed
-                                )
-                            else:
-                                await announce_channel.send(embed=out_embed)
+                        else:
+                            await announce_channel.send(embed=out_embed)
 
-    @diff_musics.before_loop
+    @tasks.loop(seconds=60)
+    async def update_data(self):
+        old_musics = self.musics_dict.copy()
+
+        await self.pjsk_client.update_all()
+
+        await self.prepare_data_dicts()
+        await self.pjsk_client.set_master_data(MasterData.create(), write=False)
+
+        await self.diff_musics(old_musics)
+
+    @update_data.before_loop
     async def before_diff_musics(self):
         await self.client.wait_until_ready()
 
