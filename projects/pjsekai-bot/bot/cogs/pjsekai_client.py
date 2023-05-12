@@ -105,10 +105,10 @@ class PjskClientCog(Cog):
         self.pjsk_client = Client(
             bytes(os.environ["KEY"], encoding="utf-8"),
             bytes(os.environ["IV"], encoding="utf-8"),
-            system_info_file_path=str((pjsk_path / "system-info.msgpack").absolute()),
-            master_data_file_path=str((pjsk_path / "master-data.msgpack").absolute()),
-            user_data_file_path=str((pjsk_path / "user-data.json").absolute()),
-            asset_directory=str((pjsk_path / "asset").absolute()),
+            system_info_file_path=str((pjsk_path / "system-info.msgpack").resolve()),
+            master_data_file_path=str((pjsk_path / "master-data.msgpack").resolve()),
+            user_data_file_path=str((pjsk_path / "user-data.json").resolve()),
+            asset_directory=str((pjsk_path / "asset").resolve()),
         )
 
         self.musics_dict: dict[int, Music] = {}
