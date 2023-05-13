@@ -4,10 +4,11 @@
 
 import asyncio
 import discord
-from discord.ext.commands import Bot, Cog
+import discord.types.embed
+from discord.ext.commands import Bot
 import git
 import os
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 repo = git.Repo(search_parent_directories=True)  # type: ignore
 date = repo.head.commit.committed_datetime
@@ -69,3 +70,17 @@ class BotClient(Bot):
         if "TEST" in os.environ:
             self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
+
+    def generate_embed(
+        self,
+        *,
+        color: Optional[int | discord.Colour] = None,
+        title: Optional[Any] = None,
+        type: discord.types.embed.EmbedType = "rich",
+        description: Optional[Any] = None,
+    ):
+        embed = discord.Embed(
+            color=color, title=title, type=type, description=description
+        )
+        embed.set_footer(text=BOT_VERSION)
+        return embed

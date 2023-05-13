@@ -396,8 +396,9 @@ class PjskClientCog(Cog):
                     music: Music = diff["right"]
                     music_data = self.music_data_from_music(music)
                     if announce_channel := self.client.announce_channel:
-                        out_embed = discord.Embed(title=f"new music found!")
-                        out_embed.set_footer(text=BOT_VERSION)
+                        out_embed = self.client.generate_embed(
+                            title=f"new music found!"
+                        )
                         out_embed_file = await self.add_music_embed_fields(
                             music_data, out_embed, set_title=False
                         )
@@ -428,3 +429,7 @@ def get_pjsk_client_cog(client: BotClient):
     if cog := client.get_cog("PjskClientCog"):
         if isinstance(cog, PjskClientCog):
             return cog
+
+
+async def setup(client: BotClient):
+    await client.add_cog(PjskClientCog(client))

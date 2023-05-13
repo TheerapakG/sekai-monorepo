@@ -8,8 +8,12 @@ from dotenv import load_dotenv
 import os
 
 from bot.bot.client import BotClient
-from bot.cogs.pjsekai_client import PjskClientCog
-from bot.cogs.music import MusicCog
+
+EXTS = [
+    "bot.exts.ext_loader",
+    "bot.exts.pjsekai_client",
+    "bot.exts.music",
+]
 
 
 async def async_main():
@@ -20,16 +24,14 @@ async def async_main():
     intents = discord.Intents.default()
     client = BotClient(intents=intents)
 
-    cogs = [PjskClientCog(client), MusicCog()]
-
     async with client:
         try:
-            await asyncio.gather(*(client.add_cog(cog) for cog in cogs))
+            await asyncio.gather(*(client.load_extension(ext) for ext in EXTS))
             await client.start(os.environ["TOKEN"])
         finally:
             await client.close()
             await asyncio.gather(
-                *(client.remove_cog(cog) for cog in client.cogs.keys())
+                *(client.unload_extension(ext) for ext in client.extensions.keys())
             )
 
 

@@ -12,7 +12,6 @@ from typing import Optional, Literal
 
 from .pjsekai_client import get_pjsk_client_cog
 from ..bot.client import BOT_VERSION, BotClient
-from ..models.music import MusicData
 
 
 class MusicListEmbedView(discord.ui.View):
@@ -36,21 +35,19 @@ class MusicListEmbedView(discord.ui.View):
             music_datas = [pjsk_client_cog.music_data_from_music(m) for m in musics]
 
             if len(music_datas) == 0:
-                out_embed = discord.Embed(
+                out_embed = client.generate_embed(
                     title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({len(music_datas)})",
                     description="None!",
                 )
-                out_embed.set_footer(text=BOT_VERSION)
                 yield "send", {"embed": out_embed}
             else:
                 self.index = max(min(self.index, len(music_datas)), 1)
-                out_embed = discord.Embed(
+                out_embed = client.generate_embed(
                     title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({self.index}/{len(music_datas)})"
                 )
                 out_embed_file = await pjsk_client_cog.add_music_embed_fields(
                     music_datas[self.index - 1], out_embed, set_title=False
                 )
-                out_embed.set_footer(text=BOT_VERSION)
                 yield "send", {
                     "files": [out_embed_file]
                     if out_embed_file
@@ -167,8 +164,7 @@ class MusicCog(Cog):
             music := pjsk_client_cog.musics_dict.get(id)
         ):
             music_data = pjsk_client_cog.music_data_from_music(music)
-            out_embed = discord.Embed()
-            out_embed.set_footer(text=BOT_VERSION)
+            out_embed = ctx.bot.generate_embed()
             out_embed_file = await pjsk_client_cog.add_music_embed_fields(
                 music_data, out_embed
             )
@@ -189,7 +185,7 @@ class MusicCog(Cog):
             and (music_vocals := pjsk_client_cog.music_vocal_dict.get(id))
         ):
             music_data = pjsk_client_cog.music_data_from_music(music)
-            out_embed = discord.Embed()
+            out_embed = ctx.bot.generate_embed()
             out_embed.title = music.title
             for music_vocal in music_vocals:
                 character_list = []
@@ -223,7 +219,6 @@ class MusicCog(Cog):
                     inline=False,
                 )
 
-            out_embed.set_footer(text=BOT_VERSION)
             out_embed_file = await pjsk_client_cog.add_music_embed_thumbnail(
                 music_data, out_embed
             )
@@ -233,3 +228,7 @@ class MusicCog(Cog):
                 await ctx.send(embed=out_embed)
         else:
             await ctx.send("Not found!")
+
+
+async def setup(client: BotClient):
+    await client.add_cog(MusicCog(client))
