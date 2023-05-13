@@ -223,7 +223,7 @@ class MasterDataMutex:
         self._lock.release()
 
     async def _loads(self, data: bytes, write=True):
-        del self._master_data
+        await self._set_value(MasterData.create(), write=False)
         await self._set_value(msgpack_converter.loads(data, MasterData), write=write)
 
     @asynccontextmanager
@@ -233,7 +233,7 @@ class MasterDataMutex:
             yield self._master_data
 
     async def _loads_coro(self, data: Coroutine[None, None, bytes], write=True):
-        self._master_data = MasterData.create()
+        await self._set_value(MasterData.create(), write=False)
         await self._set_value(
             msgpack_converter.loads(await data, MasterData), write=write
         )
@@ -265,10 +265,11 @@ class MasterDataMutex:
             async with aiofiles.open(temp_path, "wb") as f:
                 await f.write(msgpack_converter.dumps(self._master_data, MasterData))
             await aiofiles.os.replace(temp_path, self.master_data_file_path)
+        self._sync = True
 
     async def _set_value(self, new_value: MasterData, write=True):
+        self._sync = False
         self._master_data = new_value
-        self._sync = write
         if write:
             await self._write()
 

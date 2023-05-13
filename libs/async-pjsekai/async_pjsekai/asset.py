@@ -19,13 +19,23 @@ from async_pjsekai.models.converters import msgpack_converter
 
 class AssetBundleInfoMutex:
     _lock: Lock
+    _sync: bool
     _asset_bundle_info: Optional[AssetBundleInfo]
     _asset_bundle_info_file_path: Optional[Path]
 
     def __init__(self, asset_bundle_info_file_path: Optional[Path]) -> None:
         self._lock = Lock()
+        self._sync = False
         self._asset_bundle_info = None
         self._asset_bundle_info_file_path = asset_bundle_info_file_path
+
+    @property
+    def sync(self):
+        return self._sync
+
+    @property
+    def asset_bundle_info(self):
+        return self._asset_bundle_info
 
     @property
     def asset_bundle_info_file_path(self):
@@ -33,7 +43,7 @@ class AssetBundleInfoMutex:
 
     async def __aenter__(self):
         await self._lock.acquire()
-        return self._asset_bundle_info
+        return self._asset_bundle_info, self._sync
 
     async def __aexit__(
         self,
@@ -44,7 +54,7 @@ class AssetBundleInfoMutex:
         self._lock.release()
 
     async def _loads(self, data: bytes):
-        del self._asset_bundle_info
+        await self._set_value(None, write=False)
         new_value = msgpack_converter.loads(data, AssetBundleInfo)
         await self._set_value(new_value)
         return new_value
@@ -55,7 +65,7 @@ class AssetBundleInfoMutex:
             yield await self._loads(data)
 
     async def _loads_coro(self, data: Coroutine[None, None, bytes]):
-        self._asset_bundle_info = None
+        await self._set_value(None, write=False)
         new_value = msgpack_converter.loads(await data, AssetBundleInfo)
         await self._set_value(new_value)
         return new_value
@@ -94,10 +104,13 @@ class AssetBundleInfoMutex:
                     msgpack_converter.dumps(self._asset_bundle_info, AssetBundleInfo)
                 )
             await aiofiles.os.replace(temp_path, self.asset_bundle_info_file_path)
+        self._sync = True
 
-    async def _set_value(self, new_value: Optional[AssetBundleInfo]):
+    async def _set_value(self, new_value: Optional[AssetBundleInfo], write=True):
+        self._sync = False
         self._asset_bundle_info = new_value
-        await self._write()
+        if write:
+            await self._write()
 
     async def set_value(self, new_value: Optional[AssetBundleInfo]):
         async with self._lock:
