@@ -215,7 +215,7 @@ class PjskClientCog(Cog):
         if (directory := self.pjsk_client.asset_directory) and (
             asset := self.pjsk_client.asset
         ):
-            async with asset.asset_bundle_info as asset_bundle_info:
+            async with asset.asset_bundle_info as (asset_bundle_info, sync):
                 bundle_hash = None
                 if asset_bundle_info and (bundles := asset_bundle_info.bundles):
                     if asset_bundle_str in bundles:
