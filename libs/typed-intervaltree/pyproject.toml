@@ -1,0 +1,28 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "typed-intervaltree"
+version = "0.0.1.dev0"
+description = "Fully typed interval tree implementation"
+repository = "https://github.com/TheerapakG/sekai-monorepo"
+license = "Apache-2.0"
+authors = [
+    "TheerapakG <theerapakg@gmail.com>",
+]
+
+packages = [
+    { include = "typed_intervaltree" }
+]
+
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"

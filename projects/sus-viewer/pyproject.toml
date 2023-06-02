@@ -1,0 +1,20 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "sus-viewer"
+version = "0.0.1.dev0"
+description = "pjsekai chart viewer"
+repository = "https://github.com/TheerapakG/sekai-monorepo"
+license = "MIT"
+authors = [
+    "TheerapakG <theerapakg@gmail.com>",
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+sus-parser = { path="../../libs/sus-parser", develop=true }
+typed-intervaltree = { path="../../libs/typed-intervaltree", develop=true }

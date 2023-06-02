@@ -1,0 +1,28 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "sus-parser"
+version = "0.0.1.dev0"
+description = "Parser for Sliding Universal Score (SUS) format"
+repository = "https://github.com/TheerapakG/sekai-monorepo"
+license = "MIT"
+authors = [
+    "TheerapakG <theerapakg@gmail.com>",
+]
+
+packages = [
+    { include = "sus_parser" }
+]
+
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
