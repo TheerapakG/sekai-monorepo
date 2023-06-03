@@ -5,8 +5,8 @@
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
-from enum import IntEnum
 from fractions import Fraction
+from functools import cache
 from io import TextIOWrapper
 from pathlib import Path
 import re
@@ -62,17 +62,6 @@ class BPM:
     bpm: float
 
 
-class FeverType(IntEnum):
-    On = 1
-    Off = 2
-
-
-@dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
-class Fever:
-    time: TimeFraction
-    fever_type: FeverType
-
-
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class Lane:
     start: int
@@ -86,88 +75,54 @@ class Lane:
         return f"{self.__class__.__name__}({self.start}, {self.end})"
 
 
-class NoteType(IntEnum):
-    Null = 0
-    Normal = 1
-    ToggleCritical = 2
-    HoldIgnore = 3
-
-
-class ModifierType(IntEnum):
-    Null = 0
-    FlickUp = 1
-    EaseIn = 2
-    FlickUpLeft = 3
-    FlickUpRight = 4
-    EaseOut = 5
-
-
-MODIFIER_MAPPING = [
-    ModifierType.Null,
-    ModifierType.FlickUp,
-    ModifierType.EaseIn,
-    ModifierType.FlickUpLeft,
-    ModifierType.FlickUpRight,
-    ModifierType.EaseOut,
-    ModifierType.EaseOut,
-]
-MODIFIER_FLICK = {
-    ModifierType.FlickUp,
-    ModifierType.FlickUpLeft,
-    ModifierType.FlickUpRight,
-}
-MODIFIER_EASE = {ModifierType.EaseIn, ModifierType.EaseOut}
-
-
-class HoldType(IntEnum):
-    Start = 1
-    End = 2
-    Visible = 3
-    Invisible = 5
-
-
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class LaneInfo:
     time: TimeFraction
     lane: Lane
 
 
+class AnySpeedDefinition:
+    @cache
+    def __new__(cls):
+        return super().__new__(cls)
+
+
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class NoteInfo:
     lane_info: LaneInfo
-    note_type: NoteType
-    speed_definition: Optional[str]
+    note_type: int
+    speed_definition: Optional[str | AnySpeedDefinition]
 
 
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class ModifierInfo:
     lane_info: LaneInfo
-    modifier_type: ModifierType
-    speed_definition: Optional[str]
+    modifier_type: int
+    speed_definition: Optional[str | AnySpeedDefinition]
 
 
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class HoldInfo:
     lane_info: LaneInfo
-    hold_type: HoldType
-    speed_definition: Optional[str]
+    hold_type: int
+    speed_definition: Optional[str | AnySpeedDefinition]
 
 
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
 class Note:
     lane_info: LaneInfo
-    note_type: NoteType
-    modifier_type: ModifierType
-    speed_definition: Optional[str]
+    note_type: Optional[int]
+    modifier_type: Optional[int]
+    speed_definition: Optional[str | AnySpeedDefinition]
 
 
 @dataclass(slots=True, order=True, frozen=True)
 class HoldPath(Note):
-    hold_type: HoldType
+    hold_type: int
 
 
 @dataclass(slots=True, order=True)
-class HoldNote:
+class HoldChannel:
     path: list[HoldPath]
 
 
@@ -194,10 +149,8 @@ class SUS:
     )
     barlengths: list[Barlength] = field(default_factory=list)
     bpms: list[BPM] = field(default_factory=list)
-    skills: list[TimeFraction] = field(default_factory=list)
-    fevers: list[Fever] = field(default_factory=list)
     tap_notes: list[Note] = field(default_factory=list)
-    hold_notes: list[HoldNote] = field(default_factory=list)
+    hold_channels: list[HoldChannel] = field(default_factory=list)
 
     @classmethod
     def read(cls, f: TextIOWrapper):
@@ -214,9 +167,7 @@ class SUS:
             if not line.startswith("#"):
                 continue
 
-            sh_line = shlex.split(
-                line[1:].replace(":", " ", 1).lower()
-            )  # type: list[str]
+            sh_line = shlex.split(line[1:].replace(":", " ", 1).lower())
             header = sh_line[0]
             data = sh_line[1] if len(sh_line) > 1 else ""
             header = header.rstrip(":")
@@ -360,50 +311,27 @@ class SUS:
                             ):
                                 if data_unit == "00":
                                     continue
-                                match lane:
-                                    case "0":
-                                        self.skills.append(
-                                            TimeFraction(
-                                                measure=measure_base + int(header[:-2]),
-                                                fraction=Fraction(i, length),
-                                            )
-                                        )
-                                        continue
-                                    case "f":
-                                        self.fevers.append(
-                                            Fever(
-                                                time=TimeFraction(
-                                                    measure=measure_base
-                                                    + int(header[:-2]),
-                                                    fraction=Fraction(i, length),
-                                                ),
-                                                fever_type=FeverType(int(data_unit[0])),
-                                            )
-                                        )
-                                        continue
-                                    case _:
-                                        lane_info = LaneInfo(
-                                            time=TimeFraction(
-                                                measure=measure_base + int(header[:-2]),
-                                                fraction=Fraction(i, length),
-                                            ),
-                                            lane=Lane(
-                                                start=int(lane, 36) - 2,
-                                                length=int(data_unit[1], 36),
-                                            ),
-                                        )
-                                        note_info = NoteInfo(
-                                            lane_info=lane_info,
-                                            note_type=NoteType(int(data_unit[0])),
-                                            speed_definition=current_speed_def,
-                                        )
-                                        if lane_info in note_info_dict:
-                                            print(
-                                                f"duplicated note {note_info} and {note_info_dict[lane_info]}"
-                                            )
-                                            continue
-                                        note_info_dict[lane_info] = note_info
-                                        continue
+                                lane_info = LaneInfo(
+                                    time=TimeFraction(
+                                        measure=measure_base + int(header[:-2]),
+                                        fraction=Fraction(i, length),
+                                    ),
+                                    lane=Lane(
+                                        start=int(lane, 36),
+                                        length=int(data_unit[1], 36),
+                                    ),
+                                )
+                                note_info = NoteInfo(
+                                    lane_info=lane_info,
+                                    note_type=int(data_unit[0], 36),
+                                    speed_definition=current_speed_def,
+                                )
+                                if lane_info in note_info_dict:
+                                    print(
+                                        f"duplicated note {note_info} and {note_info_dict[lane_info]}"
+                                    )
+                                    continue
+                                note_info_dict[lane_info] = note_info
                             continue
                         case "5":
                             length = len(data) // 2
@@ -419,13 +347,13 @@ class SUS:
                                         fraction=Fraction(i, length),
                                     ),
                                     lane=Lane(
-                                        start=int(lane, 36) - 2,
+                                        start=int(lane, 36),
                                         length=int(data_unit[1], 36),
                                     ),
                                 )
                                 modifier_info = ModifierInfo(
                                     lane_info=lane_info,
-                                    modifier_type=MODIFIER_MAPPING[int(data_unit[0])],
+                                    modifier_type=int(data_unit[0], 36),
                                     speed_definition=current_speed_def,
                                 )
                                 if lane_info in modifier_info_dict:
@@ -450,12 +378,12 @@ class SUS:
                                 fraction=Fraction(i, length),
                             ),
                             lane=Lane(
-                                start=int(lane, 36) - 2, length=int(data_unit[1], 36)
+                                start=int(lane, 36), length=int(data_unit[1], 36)
                             ),
                         )
                         hold_info = HoldInfo(
                             lane_info=lane_info,
-                            hold_type=HoldType(int(data_unit[0])),
+                            hold_type=int(data_unit[0], 36),
                             speed_definition=current_speed_def,
                         )
                         if lane_info in hold_info_dict[channel]:
@@ -480,44 +408,35 @@ class SUS:
             note_dict[lane_info] = Note(
                 lane_info=lane_info,
                 note_type=note_info.note_type,
-                modifier_type=modifier_info.modifier_type
-                if modifier_info
-                else ModifierType.Null,
+                modifier_type=modifier_info.modifier_type if modifier_info else None,
                 speed_definition=note_info.speed_definition,
             )
 
         for lane_info, modifier_info in modifier_info_dict.items():
             note_dict[lane_info] = Note(
                 lane_info=lane_info,
-                note_type=NoteType.Null,
-                modifier_type=modifier_info.modifier_type
-                if modifier_info
-                else ModifierType.Null,
+                note_type=None,
+                modifier_type=modifier_info.modifier_type if modifier_info else None,
                 speed_definition=modifier_info.speed_definition,
             )
 
         for channel_dict in hold_info_dict.values():
-            current_hold_path: list[HoldPath] = []
+            hold_channel = HoldChannel(path=[])
             for hold_info in sorted(channel_dict.values()):
                 note = note_dict.pop(hold_info.lane_info, None)
                 if note and hold_info.speed_definition != note.speed_definition:
                     print(f"speed definition conflict on {note} and {hold_info}")
                 hold_path = HoldPath(
                     lane_info=hold_info.lane_info,
-                    note_type=note.note_type if note else NoteType.Null,
-                    modifier_type=note.modifier_type if note else ModifierType.Null,
+                    note_type=note.note_type if note else None,
+                    modifier_type=note.modifier_type if note else None,
                     speed_definition=note.speed_definition
                     if note
                     else hold_info.speed_definition,
                     hold_type=hold_info.hold_type,
                 )
-                current_hold_path.append(hold_path)
-                if hold_path.hold_type == HoldType.End:
-                    self.hold_notes.append(HoldNote(path=current_hold_path))
-                    current_hold_path = []
-
-            for hold_path in current_hold_path:
-                print(f"leftover hold path {hold_path}")
+                hold_channel.path.append(hold_path)
+            self.hold_channels.append(hold_channel)
 
         self.tap_notes = sorted(note_dict.values())
 
