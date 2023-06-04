@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from enum import IntEnum
@@ -117,9 +116,7 @@ class PjsekaiSUS:
     request: Request = field(default_factory=Request)
     bar_lengths: list[BarLength] = field(default_factory=list)
     bpms: list[BPM] = field(default_factory=list)
-    speeds: defaultdict[str, list[Speed]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    speeds: dict[str, list[Speed]] = field(default_factory=dict)
     skills: list[TimeFraction] = field(default_factory=list)
     fevers: list[Fever] = field(default_factory=list)
     tap_notes: list[Note] = field(default_factory=list)
@@ -148,7 +145,7 @@ class PjsekaiSUS:
             bpms=sus.bpms.copy(),
         )
 
-        self.speeds = defaultdict(list)
+        self.speeds = dict()
         for k, v in sus.speeds.items():
             self.speeds[k] = v.copy()
 
@@ -235,7 +232,7 @@ class PjsekaiSUS:
             bpms=self.bpms.copy(),
         )
 
-        sus.speeds = defaultdict(list)
+        sus.speeds = dict()
         for k, v in self.speeds.items():
             sus.speeds[k] = v.copy()
 

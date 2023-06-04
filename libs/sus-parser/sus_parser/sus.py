@@ -150,9 +150,7 @@ class SUS:
     request: Request = field(default_factory=Request)
     bar_lengths: list[BarLength] = field(default_factory=list)
     bpms: list[BPM] = field(default_factory=list)
-    speeds: defaultdict[str, list[Speed]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    speeds: dict[str, list[Speed]] = field(default_factory=dict)
     tap_notes: list[Note] = field(default_factory=list)
     hold_channels: list[HoldChannel] = field(default_factory=list)
 
@@ -263,6 +261,7 @@ class SUS:
                     bpm_dict[header[3:]] = float(data)
                     continue
                 case "til":
+                    self.speeds[header[3:]] = []
                     for match in re.finditer(r"(\d+)'(\d+):(\d*)(?:\.(\d*))?", data):
                         match = match.groups("0")
                         self.speeds[header[3:]].append(
