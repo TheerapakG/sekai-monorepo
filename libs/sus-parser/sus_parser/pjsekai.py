@@ -22,6 +22,7 @@ from .sus import (
     Note as SUSNote,
     Lane,
     AnySpeedDefinition,
+    any_speed_definition,
     HoldChannel,
     HoldPath as SUSHoldPath,
 )
@@ -245,7 +246,7 @@ class PjsekaiSUS:
                     ),
                     note_type=4,
                     modifier_type=None,
-                    speed_definition=AnySpeedDefinition(),
+                    speed_definition=any_speed_definition,
                 )
             )
 
@@ -258,7 +259,7 @@ class PjsekaiSUS:
                     ),
                     note_type=int(f.fever_type),
                     modifier_type=None,
-                    speed_definition=AnySpeedDefinition(),
+                    speed_definition=any_speed_definition,
                 )
             )
 

@@ -5,8 +5,8 @@
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from enum import Enum, auto
 from fractions import Fraction
-from functools import cache
 from importlib import metadata
 from io import TextIOWrapper
 from math import lcm
@@ -85,10 +85,11 @@ class LaneInfo:
     lane: Lane
 
 
-class AnySpeedDefinition:
-    @cache
-    def __new__(cls):
-        return super().__new__(cls)
+class AnySpeedDefinition(Enum):
+    _value = auto()
+
+
+any_speed_definition = AnySpeedDefinition._value
 
 
 @dataclass(slots=True, order=True, frozen=True, unsafe_hash=True)
