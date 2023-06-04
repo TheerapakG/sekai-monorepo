@@ -17,7 +17,7 @@ from .sus import (
     PlayLevel,
     Request,
     Speed,
-    Barlength,
+    BarLength,
     BPM,
     TimeFraction,
     Note as SUSNote,
@@ -115,11 +115,11 @@ class PjsekaiSUS:
     movie_offset: Optional[timedelta] = field(default=None)
     base_bpm: Optional[float] = field(default=None)
     request: Request = field(default_factory=Request)
+    bar_lengths: list[BarLength] = field(default_factory=list)
+    bpms: list[BPM] = field(default_factory=list)
     speeds: defaultdict[str, list[Speed]] = field(
         default_factory=lambda: defaultdict(list)
     )
-    barlengths: list[Barlength] = field(default_factory=list)
-    bpms: list[BPM] = field(default_factory=list)
     skills: list[TimeFraction] = field(default_factory=list)
     fevers: list[Fever] = field(default_factory=list)
     tap_notes: list[Note] = field(default_factory=list)
@@ -144,7 +144,7 @@ class PjsekaiSUS:
             movie_offset=sus.movie_offset,
             base_bpm=sus.base_bpm,
             request=sus.request,
-            barlengths=sus.barlengths.copy(),
+            bar_lengths=sus.bar_lengths.copy(),
             bpms=sus.bpms.copy(),
         )
 
@@ -153,17 +153,24 @@ class PjsekaiSUS:
             self.speeds[k] = v.copy()
 
         for n in sus.tap_notes:
-            match n.lane_info.lane:
+            match n.lane_info.lane.start:
                 case 0:
                     self.skills.append(n.lane_info.time)
+                    continue
                 case 15:
                     self.fevers.append(
                         Fever(time=n.lane_info.time, fever_type=FeverType(n.note_type))
                     )
+                    continue
                 case _:
                     self.tap_notes.append(
                         Note(
-                            lane_info=replace(n.lane_info, lane=n.lane_info.lane - 2),
+                            lane_info=replace(
+                                n.lane_info,
+                                lane=replace(
+                                    n.lane_info.lane, start=n.lane_info.lane.start - 2
+                                ),
+                            ),
                             note_type=NoteType(n.note_type)
                             if n.note_type is not None
                             else NoteType.Null,
@@ -173,13 +180,19 @@ class PjsekaiSUS:
                             speed_definition=n.speed_definition,
                         )
                     )
+                    continue
 
         for channel in sus.hold_channels:
             current_path: list[HoldPath] = []
             for n in channel.path:
                 current_path.append(
                     HoldPath(
-                        lane_info=replace(n.lane_info, lane=n.lane_info.lane - 2),
+                        lane_info=replace(
+                            n.lane_info,
+                            lane=replace(
+                                n.lane_info.lane, start=n.lane_info.lane.start - 2
+                            ),
+                        ),
                         note_type=NoteType(n.note_type)
                         if n.note_type is not None
                         else NoteType.Null,
@@ -218,10 +231,13 @@ class PjsekaiSUS:
             movie_offset=self.movie_offset,
             base_bpm=self.base_bpm,
             request=self.request,
-            speeds=self.speeds,
-            barlengths=self.barlengths,
-            bpms=self.bpms,
+            bar_lengths=self.bar_lengths.copy(),
+            bpms=self.bpms.copy(),
         )
+
+        sus.speeds = defaultdict(list)
+        for k, v in self.speeds.items():
+            sus.speeds[k] = v.copy()
 
         for t in self.skills:
             sus.tap_notes.append(
@@ -252,41 +268,61 @@ class PjsekaiSUS:
         for n in self.tap_notes:
             sus.tap_notes.append(
                 SUSNote(
-                    lane_info=replace(n.lane_info, lane=n.lane_info.lane + 2),
-                    note_type=int(n.note_type),
-                    modifier_type=int(n.modifier_type),
+                    lane_info=replace(
+                        n.lane_info,
+                        lane=replace(
+                            n.lane_info.lane, start=n.lane_info.lane.start + 2
+                        ),
+                    ),
+                    note_type=int(n.note_type)
+                    if n.note_type != NoteType.Null
+                    else None,
+                    modifier_type=int(n.modifier_type)
+                    if n.modifier_type != ModifierType.Null
+                    else None,
                     speed_definition=n.speed_definition,
                 )
             )
 
-        hold_channels: list[HoldChannel] = []
+        hold_channels: list[tuple[TimeFraction, HoldChannel]] = []
         for hold_note in sorted(self.hold_notes, key=lambda h: h.path[0].lane_info):
             hold_path = [
                 SUSHoldPath(
-                    lane_info=replace(n.lane_info, lane=n.lane_info.lane + 2),
-                    note_type=int(n.note_type),
-                    modifier_type=int(n.modifier_type),
+                    lane_info=replace(
+                        n.lane_info,
+                        lane=replace(
+                            n.lane_info.lane, start=n.lane_info.lane.start + 2
+                        ),
+                    ),
+                    note_type=int(n.note_type)
+                    if n.note_type != NoteType.Null
+                    else None,
+                    modifier_type=int(n.modifier_type)
+                    if n.modifier_type != ModifierType.Null
+                    else None,
                     hold_type=int(n.hold_type),
                     speed_definition=n.speed_definition,
                 )
                 for n in hold_note.path
             ]
 
-            if (
-                hold_channels
-                and hold_channels[0].path[-1].lane_info.time
-                < hold_path[0].lane_info.time
-            ):
-                channel = hold_channels[0]
-                channel.path.extend(hold_path)
-                heapq.heapreplace(hold_channels, channel)
+            if hold_channels and hold_channels[0][0] < hold_path[0].lane_info.time:
+                new_channel = (hold_path[-1].lane_info.time, hold_channels[0][1])
+                new_channel[1].path.extend(hold_path)
+                heapq.heapreplace(hold_channels, new_channel)
             else:
-                heapq.heappush(hold_channels, HoldChannel(path=hold_path))
+                heapq.heappush(
+                    hold_channels,
+                    (hold_path[-1].lane_info.time, HoldChannel(path=hold_path)),
+                )
 
-        sus.hold_channels = hold_channels
+        sus.hold_channels = [c for _, c in hold_channels]
 
         return sus
 
     @classmethod
-    def read(cls, f: TextIOWrapper):
-        return cls.from_sus(SUS.read(f))
+    def load(cls, f: TextIOWrapper):
+        return cls.from_sus(SUS.load(f))
+
+    def dump(self, f: TextIOWrapper):
+        self.to_sus().dump(f)
