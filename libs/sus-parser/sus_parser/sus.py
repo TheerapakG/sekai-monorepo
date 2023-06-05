@@ -153,7 +153,7 @@ class SUS:
     bpms: list[BPM] = field(default_factory=list)
     speeds: dict[str, list[Speed]] = field(default_factory=dict)
     tap_notes: list[Note] = field(default_factory=list)
-    hold_channels: list[HoldChannel] = field(default_factory=list)
+    hold_channels: list[list[HoldChannel]] = field(default_factory=lambda:[[], [], []])
 
     @classmethod
     def load(cls, f: TextIOWrapper):
@@ -164,7 +164,7 @@ class SUS:
         bpm_dict: dict[str, float] = {}
         note_info_dict: dict[LaneInfo, NoteInfo] = {}
         modifier_info_dict: dict[LaneInfo, ModifierInfo] = {}
-        hold_info_dict: defaultdict[str, dict[LaneInfo, HoldInfo]] = defaultdict(dict)
+        hold_info_dict: list[defaultdict[str, dict[LaneInfo, HoldInfo]]] = [defaultdict(dict), defaultdict(dict), defaultdict(dict)]
 
         for line in f:
             if not line.startswith("#"):
@@ -368,35 +368,38 @@ class SUS:
                                 modifier_info_dict[lane_info] = modifier_info
                             continue
                 case 6:
-                    length = len(data) // 2
-                    lane = header[-2]
-                    channel = header[-1]
-                    for i, data_unit in enumerate(
-                        "".join(t) for t in zip(data[::2], data[1::2])
-                    ):
-                        if data_unit == "00":
+                    match header[-3]:
+                        case "2" | "3" | "4":
+                            length = len(data) // 2
+                            hold_category = int(header[-3]) -2
+                            lane = header[-2]
+                            channel = header[-1]
+                            for i, data_unit in enumerate(
+                                "".join(t) for t in zip(data[::2], data[1::2])
+                            ):
+                                if data_unit == "00":
+                                    continue
+                                lane_info = LaneInfo(
+                                    time=TimeFraction(
+                                        measure=measure_base + int(header[:-3]),
+                                        fraction=Fraction(i, length),
+                                    ),
+                                    lane=Lane(
+                                        start=int(lane, 36), length=int(data_unit[1], 36)
+                                    ),
+                                )
+                                hold_info = HoldInfo(
+                                    lane_info=lane_info,
+                                    hold_type=int(data_unit[0], 36),
+                                    speed_definition=current_speed_def,
+                                )
+                                if lane_info in hold_info_dict[hold_category][channel]:
+                                    print(
+                                        f"duplicated hold {hold_info} and {hold_info_dict[hold_category][channel][lane_info]}"
+                                    )
+                                    continue
+                                hold_info_dict[hold_category][channel][lane_info] = hold_info
                             continue
-                        lane_info = LaneInfo(
-                            time=TimeFraction(
-                                measure=measure_base + int(header[:-3]),
-                                fraction=Fraction(i, length),
-                            ),
-                            lane=Lane(
-                                start=int(lane, 36), length=int(data_unit[1], 36)
-                            ),
-                        )
-                        hold_info = HoldInfo(
-                            lane_info=lane_info,
-                            hold_type=int(data_unit[0], 36),
-                            speed_definition=current_speed_def,
-                        )
-                        if lane_info in hold_info_dict[channel]:
-                            print(
-                                f"duplicated hold {hold_info} and {hold_info_dict[channel][lane_info]}"
-                            )
-                            continue
-                        hold_info_dict[channel][lane_info] = hold_info
-                    continue
 
             print(f"unrecognized header {header}")
 
@@ -424,23 +427,24 @@ class SUS:
                 speed_definition=modifier_info.speed_definition,
             )
 
-        for channel_dict in hold_info_dict.values():
-            hold_channel = HoldChannel(path=[])
-            for hold_info in sorted(channel_dict.values()):
-                note = note_dict.pop(hold_info.lane_info, None)
-                if note and hold_info.speed_definition != note.speed_definition:
-                    print(f"speed definition conflict on {note} and {hold_info}")
-                hold_path = HoldPath(
-                    lane_info=hold_info.lane_info,
-                    note_type=note.note_type if note else None,
-                    modifier_type=note.modifier_type if note else None,
-                    speed_definition=note.speed_definition
-                    if note
-                    else hold_info.speed_definition,
-                    hold_type=hold_info.hold_type,
-                )
-                hold_channel.path.append(hold_path)
-            self.hold_channels.append(hold_channel)
+        for hold_category, hold_info_category_dict in enumerate(hold_info_dict):
+            for channel_dict in hold_info_category_dict.values():
+                hold_channel = HoldChannel(path=[])
+                for hold_info in sorted(channel_dict.values()):
+                    note = note_dict.pop(hold_info.lane_info, None)
+                    if note and hold_info.speed_definition != note.speed_definition:
+                        print(f"speed definition conflict on {note} and {hold_info}")
+                    hold_path = HoldPath(
+                        lane_info=hold_info.lane_info,
+                        note_type=note.note_type if note else None,
+                        modifier_type=note.modifier_type if note else None,
+                        speed_definition=note.speed_definition
+                        if note
+                        else hold_info.speed_definition,
+                        hold_type=hold_info.hold_type,
+                    )
+                    hold_channel.path.append(hold_path)
+                self.hold_channels[hold_category].append(hold_channel)
 
         self.tap_notes = sorted(note_dict.values())
 
@@ -556,9 +560,9 @@ class SUS:
         modifier_info_dict: defaultdict[
             Optional[str], list[ModifierInfo]
         ] = defaultdict(list)
-        hold_info_dict: defaultdict[
+        hold_info_dict: list[defaultdict[
             Optional[str], defaultdict[int, list[HoldInfo]]
-        ] = defaultdict(lambda: defaultdict(list))
+        ]] = [defaultdict(lambda: defaultdict(list)), defaultdict(lambda: defaultdict(list)), defaultdict(lambda: defaultdict(list))]
 
         for n in self.tap_notes:
             if n.note_type is not None:
@@ -586,48 +590,49 @@ class SUS:
                     )
                 )
 
-        for i, c in enumerate(self.hold_channels):
-            for n in c.path:
-                if n.note_type is not None:
-                    note_info_dict[
+        for category, hold_category_channel in enumerate(self.hold_channels):
+            for i, c in enumerate(hold_category_channel):
+                for n in c.path:
+                    if n.note_type is not None:
+                        note_info_dict[
+                            n.speed_definition
+                            if not isinstance(n.speed_definition, AnySpeedDefinition)
+                            else None
+                        ].append(
+                            NoteInfo(
+                                lane_info=n.lane_info,
+                                note_type=n.note_type,
+                                speed_definition=n.speed_definition,
+                            )
+                        )
+                    if n.modifier_type is not None:
+                        modifier_info_dict[
+                            n.speed_definition
+                            if not isinstance(n.speed_definition, AnySpeedDefinition)
+                            else None
+                        ].append(
+                            ModifierInfo(
+                                lane_info=n.lane_info,
+                                modifier_type=n.modifier_type,
+                                speed_definition=n.speed_definition,
+                            )
+                        )
+                    hold_info_dict[category][
                         n.speed_definition
                         if not isinstance(n.speed_definition, AnySpeedDefinition)
                         else None
-                    ].append(
-                        NoteInfo(
+                    ][i].append(
+                        HoldInfo(
                             lane_info=n.lane_info,
-                            note_type=n.note_type,
+                            hold_type=n.hold_type,
                             speed_definition=n.speed_definition,
                         )
                     )
-                if n.modifier_type is not None:
-                    modifier_info_dict[
-                        n.speed_definition
-                        if not isinstance(n.speed_definition, AnySpeedDefinition)
-                        else None
-                    ].append(
-                        ModifierInfo(
-                            lane_info=n.lane_info,
-                            modifier_type=n.modifier_type,
-                            speed_definition=n.speed_definition,
-                        )
-                    )
-                hold_info_dict[
-                    n.speed_definition
-                    if not isinstance(n.speed_definition, AnySpeedDefinition)
-                    else None
-                ][i].append(
-                    HoldInfo(
-                        lane_info=n.lane_info,
-                        hold_type=n.hold_type,
-                        speed_definition=n.speed_definition,
-                    )
-                )
 
         speed_definition_set = {
             *note_info_dict.keys(),
             *modifier_info_dict.keys(),
-            *hold_info_dict.keys(),
+            *(k for hold_info_category_dict in hold_info_dict for k in hold_info_category_dict.keys()),
         }
         speed_definitions: list[Optional[str]] = [
             None,
@@ -744,57 +749,58 @@ class SUS:
                             f"#{get_write_measure(measure)}5{as_base36(start)}: {data}\n"
                         )
 
-            for c, hold_channel in hold_info_dict[speed_definition].items():
-                measure_hold_dict: defaultdict[int, list[HoldInfo]] = defaultdict(list)
+            for category, hold_info_category_dict in enumerate(hold_info_dict):
+                for c, hold_channel in hold_info_category_dict[speed_definition].items():
+                    measure_hold_dict: defaultdict[int, list[HoldInfo]] = defaultdict(list)
 
-                for n in hold_channel:
-                    measure_hold_dict[n.lane_info.time.measure].append(n)
+                    for n in hold_channel:
+                        measure_hold_dict[n.lane_info.time.measure].append(n)
 
-                for measure, measure_hold_list in sorted(measure_hold_dict.items()):
-                    lane_hold_dict: defaultdict[int, list[HoldInfo]] = defaultdict(list)
+                    for measure, measure_hold_list in sorted(measure_hold_dict.items()):
+                        lane_hold_dict: defaultdict[int, list[HoldInfo]] = defaultdict(list)
 
-                    for n in measure_hold_list:
-                        lane_hold_dict[n.lane_info.lane.start].append(n)
+                        for n in measure_hold_list:
+                            lane_hold_dict[n.lane_info.lane.start].append(n)
 
-                    for start, lane_hold_list in sorted(lane_hold_dict.items()):
-                        holds: list[HoldInfo] = sorted(
-                            lane_hold_list,
-                            key=lambda n: n.lane_info.time.fraction.denominator,
-                        )
-                        while holds:
-                            greatest_denom = holds[
-                                -1
-                            ].lane_info.time.fraction.denominator
-                            current_pass_holds = [
-                                n
-                                for n in holds
-                                if lcm(
-                                    n.lane_info.time.fraction.denominator,
-                                    greatest_denom,
-                                )
-                                == greatest_denom
-                            ]
-                            holds = [
-                                n
-                                for n in holds
-                                if lcm(
-                                    n.lane_info.time.fraction.denominator,
-                                    greatest_denom,
-                                )
-                                != greatest_denom
-                            ]
-
-                            fraction_hold_dict = {
-                                n.lane_info.time.fraction: n for n in current_pass_holds
-                            }
-                            data = "".join(
-                                f"{as_base36(fraction_hold_dict[fraction].hold_type)}{as_base36(fraction_hold_dict[fraction].lane_info.lane.length)}"
-                                if (fraction := Fraction(i, greatest_denom))
-                                in fraction_hold_dict
-                                else "00"
-                                for i in range(greatest_denom)
+                        for start, lane_hold_list in sorted(lane_hold_dict.items()):
+                            holds: list[HoldInfo] = sorted(
+                                lane_hold_list,
+                                key=lambda n: n.lane_info.time.fraction.denominator,
                             )
+                            while holds:
+                                greatest_denom = holds[
+                                    -1
+                                ].lane_info.time.fraction.denominator
+                                current_pass_holds = [
+                                    n
+                                    for n in holds
+                                    if lcm(
+                                        n.lane_info.time.fraction.denominator,
+                                        greatest_denom,
+                                    )
+                                    == greatest_denom
+                                ]
+                                holds = [
+                                    n
+                                    for n in holds
+                                    if lcm(
+                                        n.lane_info.time.fraction.denominator,
+                                        greatest_denom,
+                                    )
+                                    != greatest_denom
+                                ]
 
-                            f.write(
-                                f"#{get_write_measure(measure)}3{as_base36(start)}{as_base36(c)}: {data}\n"
-                            )
+                                fraction_hold_dict = {
+                                    n.lane_info.time.fraction: n for n in current_pass_holds
+                                }
+                                data = "".join(
+                                    f"{as_base36(fraction_hold_dict[fraction].hold_type)}{as_base36(fraction_hold_dict[fraction].lane_info.lane.length)}"
+                                    if (fraction := Fraction(i, greatest_denom))
+                                    in fraction_hold_dict
+                                    else "00"
+                                    for i in range(greatest_denom)
+                                )
+
+                                f.write(
+                                    f"#{get_write_measure(measure)}{category + 2}{as_base36(start)}{as_base36(c)}: {data}\n"
+                                )

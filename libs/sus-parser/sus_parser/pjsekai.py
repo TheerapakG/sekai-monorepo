@@ -180,34 +180,35 @@ class PjsekaiSUS:
                     )
                     continue
 
-        for channel in sus.hold_channels:
-            current_path: list[HoldPath] = []
-            for n in channel.path:
-                current_path.append(
-                    HoldPath(
-                        lane_info=replace(
-                            n.lane_info,
-                            lane=replace(
-                                n.lane_info.lane, start=n.lane_info.lane.start - 2
+        for hold_category_channels in sus.hold_channels:
+            for channel in hold_category_channels:
+                current_path: list[HoldPath] = []
+                for n in channel.path:
+                    current_path.append(
+                        HoldPath(
+                            lane_info=replace(
+                                n.lane_info,
+                                lane=replace(
+                                    n.lane_info.lane, start=n.lane_info.lane.start - 2
+                                ),
                             ),
-                        ),
-                        note_type=NoteType(n.note_type)
-                        if n.note_type is not None
-                        else NoteType.Null,
-                        modifier_type=MODIFIER_MAPPING[n.modifier_type]
-                        if n.modifier_type is not None
-                        else ModifierType.Null,
-                        hold_type=HoldType(n.hold_type),
-                        speed_definition=n.speed_definition,
+                            note_type=NoteType(n.note_type)
+                            if n.note_type is not None
+                            else NoteType.Null,
+                            modifier_type=MODIFIER_MAPPING[n.modifier_type]
+                            if n.modifier_type is not None
+                            else ModifierType.Null,
+                            hold_type=HoldType(n.hold_type),
+                            speed_definition=n.speed_definition,
+                        )
                     )
-                )
 
-                if current_path[-1].hold_type == HoldType.End:
-                    self.hold_notes.append(HoldNote(path=current_path))
-                    current_path = []
+                    if current_path[-1].hold_type == HoldType.End:
+                        self.hold_notes.append(HoldNote(path=current_path))
+                        current_path = []
 
-            if current_path:
-                print(f"leftover hold path {current_path}")
+                if current_path:
+                    print(f"leftover hold path {current_path}")
 
         return self
 
@@ -314,7 +315,7 @@ class PjsekaiSUS:
                     (hold_path[-1].lane_info.time, HoldChannel(path=hold_path)),
                 )
 
-        sus.hold_channels = [c for _, c in hold_channels]
+        sus.hold_channels[1] = [c for _, c in hold_channels]
 
         return sus
 
