@@ -10,8 +10,10 @@ from dataclasses import astuple
 import discord
 from discord.ext.commands import Cog
 import discord.ext.tasks as tasks
+import logging
 import os
 from pathlib import Path
+import traceback
 from async_pjsekai.client import Client
 from async_pjsekai.enums.enums import (
     MusicCategory,
@@ -36,6 +38,7 @@ from async_pjsekai.models.master_data import (
 from ..bot.client import BOT_VERSION, BotClient
 from ..models.music import MusicData
 
+log = logging.getLogger(__name__)
 
 import jycm.helper
 
@@ -93,6 +96,7 @@ async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
 class PjskClientCog(Cog):
     client: BotClient
     pjsk_client: Client
+    last_update_data_exc: Exception | None
 
     def __init__(self, client: BotClient) -> None:
         super().__init__()
@@ -122,6 +126,8 @@ class PjskClientCog(Cog):
         self.music_vocal_dict: defaultdict[int, list[MusicVocal]] = defaultdict(list)
         self.game_character_dict: dict[int, GameCharacter] = {}
         self.outside_character_dict: dict[int, OutsideCharacter] = {}
+
+        self.last_update_data_exc = None
 
     async def cog_load(self):
         await self.pjsk_client.start()
@@ -411,14 +417,29 @@ class PjskClientCog(Cog):
 
     @tasks.loop(seconds=60)
     async def update_data(self):
-        old_musics = self.musics_dict.copy()
+        try:
+            old_musics = self.musics_dict.copy()
 
-        await self.pjsk_client.update_all()
+            await self.pjsk_client.update_all()
 
-        await self.prepare_data_dicts()
-        await self.pjsk_client.set_master_data(MasterData.create(), write=False)
+            await self.prepare_data_dicts()
+            await self.pjsk_client.set_master_data(MasterData.create(), write=False)
 
-        await self.diff_musics(old_musics)
+            await self.diff_musics(old_musics)
+
+            self.last_update_data_exc = None
+        except Exception as e:
+            log.exception("exception while trying to update data")
+            if (
+                announce_channel := self.client.announce_channel
+            ) and not self.last_update_data_exc:
+                out_embed = self.client.generate_embed(
+                    color=discord.Color.red(),
+                    title="exception while trying to update data",
+                    description=traceback.format_exc(),
+                )
+                await announce_channel.send(embed=out_embed)
+            self.last_update_data_exc = e
 
     @update_data.before_loop
     async def before_diff_musics(self):
