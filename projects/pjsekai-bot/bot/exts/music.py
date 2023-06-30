@@ -197,8 +197,22 @@ class MusicCog(Cog):
                                     if game_character := pjsk_client_cog.game_character_dict.get(
                                         character_id
                                     ):
-                                        name = f"{game_character.first_name} {game_character.given_name}"
-                                        ruby_name = f"{game_character.first_name_ruby} {game_character.given_name_ruby}"
+                                        name = " ".join(
+                                            n
+                                            for n in [
+                                                game_character.first_name,
+                                                game_character.given_name,
+                                            ]
+                                            if n
+                                        )
+                                        ruby_name = " ".join(
+                                            n
+                                            for n in [
+                                                game_character.first_name_ruby,
+                                                game_character.given_name_ruby,
+                                            ]
+                                            if n
+                                        )
                                         character_list.append(f"{name} ({ruby_name})")
                                     else:
                                         character_list.append("<unknown>")

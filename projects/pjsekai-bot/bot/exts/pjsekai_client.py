@@ -81,7 +81,7 @@ async def extract_acb_bytes(path: Path):
 
 
 async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
-    print(f"extracting {path}")
+    log.info(f"extracting {path}")
 
     dst = directory / path
     await aiofiles.os.makedirs(dst.parent, exist_ok=True)
@@ -231,22 +231,22 @@ class PjskClientCog(Cog):
                 bundle_hash = ""
 
             if force:
-                print(f"downloading bundle {asset_bundle_str}")
+                log.info(f"downloading bundle {asset_bundle_str}")
             else:
                 try:
                     async with aiofiles.open(
                         directory / "hash" / asset_bundle_str, "r"
                     ) as f:
                         if await f.read() == bundle_hash:
-                            print(f"bundle {asset_bundle_str} already updated")
+                            log.info(f"bundle {asset_bundle_str} already updated")
                             async with aiofiles.open(
                                 directory / "path" / asset_bundle_str, "r"
                             ) as f:
                                 return (await f.read()).splitlines()
                         else:
-                            print(f"updating bundle {asset_bundle_str}")
+                            log.info(f"updating bundle {asset_bundle_str}")
                 except FileNotFoundError:
-                    print(f"downloading bundle {asset_bundle_str}")
+                    log.info(f"downloading bundle {asset_bundle_str}")
 
             paths: list[str] = []
             tasks: list[asyncio.Task] = []
@@ -290,7 +290,7 @@ class PjskClientCog(Cog):
             async with aiofiles.open(directory / "hash" / asset_bundle_str, "w") as f:
                 await f.write(bundle_hash)
 
-            print(f"updated bundle {asset_bundle_str}")
+            log.info(f"updated bundle {asset_bundle_str}")
             return paths
 
         return []
@@ -415,7 +415,7 @@ class PjskClientCog(Cog):
                         else:
                             await announce_channel.send(embed=out_embed)
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=300)
     async def update_data(self):
         try:
             old_musics = self.musics_dict.copy()
@@ -436,7 +436,7 @@ class PjskClientCog(Cog):
                 out_embed = self.client.generate_embed(
                     color=discord.Color.red(),
                     title="exception while trying to update data",
-                    description=traceback.format_exc(),
+                    description=f"```{traceback.format_exc()}```",
                 )
                 await announce_channel.send(embed=out_embed)
             self.last_update_data_exc = e
