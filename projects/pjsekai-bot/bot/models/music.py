@@ -76,7 +76,7 @@ class MusicData:
         return [f"{e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties]  # type: ignore
 
     def difficulty_long_strs(self):
-        return [f"{e.music_difficulty.value}: {e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties]  # type: ignore
+        return [f"{str(e.music_difficulty)}: {e.play_level if e.play_level else '??'} ({e.total_note_count if e.total_note_count else '??'})" if e else "?? (??)" for e in self.difficulties]  # type: ignore
 
     def ids_str(self):
         return " ".join(f"{k}: {v}" for k, v in self.ids.items() if k and v)
