@@ -24,6 +24,7 @@ BOT_VERSION = "-".join(
     ]
     if i
 )
+BOT_FOOTER = f"{BOT_VERSION} by TheerapakG"
 
 
 class BotClient(Bot):

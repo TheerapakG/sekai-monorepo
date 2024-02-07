@@ -13,6 +13,7 @@ from typing import AsyncIterator, Coroutine, Optional, Type
 
 from async_pjsekai.api import API
 from async_pjsekai.models.asset_bundle_info import AssetBundleInfo
+from async_pjsekai.models.system_info import SystemInfo
 
 from async_pjsekai.models.converters import msgpack_converter
 
@@ -169,9 +170,9 @@ class Asset:
 
     @asynccontextmanager
     async def get_asset_bundle_info(
-        self, api_manager: API
+        self, system_info: SystemInfo, api_manager: API
     ) -> AsyncIterator[AssetBundleInfo]:
         async with self._asset_bundle_info.loads_coro(
-            api_manager.get_asset_bundle_info_packed(self._version)
+            api_manager.get_asset_bundle_info_packed(system_info, self._version)
         ) as asset_bundle_info:
             yield asset_bundle_info

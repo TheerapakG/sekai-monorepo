@@ -27,7 +27,6 @@ class API:
     key: Optional[bytes]
     iv: Optional[bytes]
     jwt_secret: Optional[str]
-    system_info: SystemInfo
     enable_encryption: dict[str, bool]
     game_version: GameVersion
     server_number: Optional[int]
@@ -146,7 +145,6 @@ class API:
         key: Optional[bytes],
         iv: Optional[bytes],
         jwt_secret: Optional[str],
-        system_info: Optional[SystemInfo],
         api_domain: str,
         asset_bundle_domain: str,
         asset_bundle_info_domain: str,
@@ -164,9 +162,6 @@ class API:
         self.key = key
         self.iv = iv
         self.jwt_secret = jwt_secret
-        self.system_info = SystemInfo.create()
-        if system_info is not None:
-            self.system_info = system_info
         self.api_domain = api_domain
         self._asset_bundle_domain = asset_bundle_domain
         self._asset_bundle_info_domain = asset_bundle_info_domain
@@ -205,18 +200,10 @@ class API:
     def _unpack(self, ciphertext: bytes, enable_decryption: bool = True) -> dict:
         return unmsgpack(self._decrypt(ciphertext, enable_decryption))
 
-    def _generate_headers(self, system_info: Optional[SystemInfo] = None) -> dict:
-        app_version: Optional[str]
-        data_version: Optional[str]
-        asset_version: Optional[str]
-        if system_info is None:
-            app_version = self.system_info.app_version
-            data_version = self.system_info.data_version
-            asset_version = self.system_info.asset_version
-        else:
-            app_version = system_info.app_version
-            data_version = system_info.data_version
-            asset_version = system_info.asset_version
+    def _generate_headers(self, system_info: SystemInfo) -> dict:
+        app_version = system_info.app_version
+        data_version = system_info.data_version
+        asset_version = system_info.asset_version
         return {
             "Content-Type": "application/octet-stream",
             "Accept": "application/octet-stream",
@@ -237,9 +224,9 @@ class API:
 
     async def get_signed_cookie(
         self,
+        system_info: SystemInfo,
         signature_domain: Optional[str] = None,
         enable_signature_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ) -> str:
         if signature_domain is None:
             signature_domain = self.signature_domain
@@ -256,26 +243,20 @@ class API:
 
     async def get_game_version_packed(
         self,
+        system_info: SystemInfo,
         app_version: Optional[str] = None,
         app_hash: Optional[str] = None,
         game_version_domain: Optional[str] = None,
         enable_game_version_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ):
         if game_version_domain is None:
             game_version_domain = self.game_version_domain
         if enable_game_version_encryption is None:
             enable_game_version_encryption = self.enable_game_version_encryption
         if app_version is None:
-            if system_info is None:
-                app_version = self.system_info.app_version
-            else:
-                app_version = system_info.app_version
+            app_version = system_info.app_version
         if app_hash is None:
-            if system_info is None:
-                app_hash = self.system_info.app_hash
-            else:
-                app_hash = system_info.app_hash
+            app_hash = system_info.app_hash
         url: str = f"https://{game_version_domain}/{app_version}/{app_hash}"
         async with self.session.get(
             url,
@@ -286,28 +267,28 @@ class API:
 
     async def get_game_version(
         self,
+        system_info: SystemInfo,
         app_version: Optional[str] = None,
         app_hash: Optional[str] = None,
         game_version_domain: Optional[str] = None,
         enable_game_version_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ) -> dict:
         return unmsgpack(
             await self.get_game_version_packed(
+                system_info,
                 app_version,
                 app_hash,
                 game_version_domain,
                 enable_game_version_encryption,
-                system_info,
             )
         )
 
     async def get_asset_bundle_info_packed(
         self,
+        system_info: SystemInfo,
         asset_version: Optional[str] = None,
         asset_bundle_info_domain: Optional[str] = None,
         enable_asset_bundle_info_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ):
         if asset_bundle_info_domain is None:
             asset_bundle_info_domain = self.asset_bundle_info_domain
@@ -316,10 +297,7 @@ class API:
                 self.enable_asset_bundle_info_encryption
             )
         if asset_version is None:
-            if system_info is None:
-                asset_version = self.system_info.asset_version
-            else:
-                asset_version = system_info.asset_version
+            asset_version = system_info.asset_version
         url: str = f"https://{asset_bundle_info_domain}/api/version/{asset_version}/os/{self.platform.asset_os.value}"
         async with self.session.get(
             url, headers=self._generate_headers(system_info)
@@ -339,23 +317,24 @@ class API:
 
     async def get_asset_bundle_info(
         self,
+        system_info: SystemInfo,
         asset_version: Optional[str] = None,
         asset_bundle_info_domain: Optional[str] = None,
         enable_asset_bundle_info_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ) -> dict:
         return unmsgpack(
             await self.get_asset_bundle_info_packed(
+                system_info,
                 asset_version,
                 asset_bundle_info_domain,
                 enable_asset_bundle_info_encryption,
-                system_info,
             )
         )
 
     @asynccontextmanager
     async def download_asset_bundle(
         self,
+        system_info: SystemInfo,
         asset_bundle_name: str,
         chunk_size: Optional[int] = None,
         asset_bundle_domain: Optional[str] = None,
@@ -371,9 +350,9 @@ class API:
         if enable_asset_bundle_encryption is None:
             enable_asset_bundle_encryption = self.enable_asset_bundle_encryption
         if asset_version is None:
-            asset_version = self.system_info.asset_version
+            asset_version = system_info.asset_version
         if asset_hash is None:
-            asset_hash = self.system_info.asset_hash
+            asset_hash = system_info.asset_hash
         if asset_version is None or asset_hash is None:
             raise UpdateRequired
         url: str = f"https://{asset_bundle_domain}/{asset_version}/{asset_hash}/{os.value}/{asset_bundle_name}"
@@ -398,6 +377,7 @@ class API:
 
     async def request_packed(
         self,
+        system_info: SystemInfo,
         method: str,
         path: str,
         params: Optional[dict] = None,
@@ -405,7 +385,6 @@ class API:
         headers: Optional[dict] = None,
         api_domain: Optional[str] = None,
         enable_api_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ):
         if api_domain is None:
             api_domain = self.api_domain
@@ -440,6 +419,7 @@ class API:
 
     async def request(
         self,
+        system_info: SystemInfo,
         method: str,
         path: str,
         params: Optional[dict] = None,
@@ -447,10 +427,10 @@ class API:
         headers: Optional[dict] = None,
         api_domain: Optional[str] = None,
         enable_api_encryption: Optional[bool] = None,
-        system_info: Optional[SystemInfo] = None,
     ) -> dict:
         return unmsgpack(
             await self.request_packed(
+                system_info,
                 method,
                 path,
                 params,
@@ -458,80 +438,99 @@ class API:
                 headers,
                 api_domain,
                 enable_api_encryption,
-                system_info,
             )
         )
 
-    async def ping(self) -> dict:
-        return await self.request("GET", "")
+    async def ping(self, system_info: SystemInfo) -> dict:
+        return await self.request(system_info, "GET", "")
 
-    async def get_system_info(self) -> dict:
-        return await self.request("GET", "system")
+    async def get_system_info(self, system_info: SystemInfo) -> dict:
+        return await self.request(system_info, "GET", "system")
 
-    async def register(self) -> dict:
-        return await self.request("POST", "user", data=self.platform.info)
+    async def register(self, system_info: SystemInfo) -> dict:
+        return await self.request(system_info, "POST", "user", data=self.platform.info)
 
-    async def authenticate(self, user_id: Union[int, str], credential: str) -> dict:
+    async def authenticate(
+        self, system_info: SystemInfo, user_id: Union[int, str], credential: str
+    ) -> dict:
         responseDict: dict = await self.request(
-            "PUT", f"user/{user_id}/auth", data={"credential": credential}
+            system_info, "PUT", f"user/{user_id}/auth", data={"credential": credential}
         )
         self._session_token = responseDict["sessionToken"]
         return responseDict
 
-    async def get_master_data_packed(self, data_version: Optional[str] = None):
+    async def get_master_data_packed(
+        self, system_info: SystemInfo, data_version: Optional[str] = None
+    ):
         if data_version is None:
-            return await self.request_packed("GET", f"suite/master")
+            return await self.request_packed(system_info, "GET", f"suite/master")
         else:
             return await self.request_packed(
+                dataclasses.replace(system_info, data_version=data_version),
                 "GET",
                 f"suite/master",
-                system_info=dataclasses.replace(
-                    self.system_info, data_version=data_version
-                ),
             )
 
-    async def get_master_data(self, data_version: Optional[str] = None) -> dict:
-        return unmsgpack(await self.get_master_data_packed(data_version))
+    async def get_master_data(
+        self, system_info: SystemInfo, data_version: Optional[str] = None
+    ) -> dict:
+        return unmsgpack(await self.get_master_data_packed(system_info, data_version))
 
-    async def get_notices(self) -> dict:
-        return await self.request("GET", f"information")
+    async def get_notices(self, system_info: SystemInfo) -> dict:
+        return await self.request(system_info, "GET", f"information")
 
     async def get_user_data(
-        self, user_id: Union[int, str], name: Optional[str] = None
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        name: Optional[str] = None,
     ) -> dict:
         params = {
-            "isForceAllReload": name is None,
-            "name": name,
+            "isForceAllReload": str(name is None),
+            "name": str(name),
         }
-        return await self.request("GET", f"suite/user/{user_id}", params=params)
-
-    async def get_login_bonus(self, user_id: Union[int, str]) -> dict:
         return await self.request(
+            system_info, "GET", f"suite/user/{user_id}", params=params
+        )
+
+    async def get_login_bonus(
+        self, system_info: SystemInfo, user_id: Union[int, str]
+    ) -> dict:
+        return await self.request(
+            system_info,
             "PUT",
             f"user/{user_id}/home/refresh",
             data={"refreshableTypes": ["new_pending_friend_request", "login_bonus"]},
         )
 
-    async def get_profile(self, user_id: Union[int, str]) -> dict:
-        return await self.request("GET", f"user/{user_id}/profile")
+    async def get_profile(
+        self, system_info: SystemInfo, user_id: Union[int, str]
+    ) -> dict:
+        return await self.request(system_info, "GET", f"user/{user_id}/profile")
 
     async def set_tutorial_status(
-        self, user_id: Union[int, str], tutorial_status: TutorialStatus
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        tutorial_status: TutorialStatus,
     ) -> dict:
         return await self.request(
+            system_info,
             "PATCH",
             f"user/{user_id}/tutorial",
             data={"tutorialStatus": tutorial_status.value},
         )
 
     async def generate_transfer_code(
-        self, user_id: Union[int, str], password: str
+        self, system_info: SystemInfo, user_id: Union[int, str], password: str
     ) -> dict:
         return await self.request(
-            "PUT", f"user/{user_id}/inherit", data={"password": password}
+            system_info, "PUT", f"user/{user_id}/inherit", data={"password": password}
         )
 
-    async def checkTransferCode(self, transfer_code: str, password: str) -> dict:
+    async def checkTransferCode(
+        self, system_info: SystemInfo, transfer_code: str, password: str
+    ) -> dict:
         if self.jwt_secret is None:
             raise MissingJWTScecret
         token_payload = {"inheritId": transfer_code, "password": password}
@@ -544,10 +543,16 @@ class API:
             "isExecuteInherit": False,
         }
         return await self.request(
-            "POST", f"inherit/user/{transfer_code}", params=params, headers=header
+            system_info,
+            "POST",
+            f"inherit/user/{transfer_code}",
+            params=params,
+            headers=header,
         )
 
-    async def generate_credential(self, transfer_code: str, password: str) -> dict:
+    async def generate_credential(
+        self, system_info: SystemInfo, transfer_code: str, password: str
+    ) -> dict:
         if self.jwt_secret is None:
             raise MissingJWTScecret
         token_payload = {"inheritId": transfer_code, "password": password}
@@ -560,26 +565,39 @@ class API:
             "isExecuteInherit": True,
         }
         return await self.request(
-            "POST", f"inherit/user/{transfer_code}", params=params, headers=header
+            system_info,
+            "POST",
+            f"inherit/user/{transfer_code}",
+            params=params,
+            headers=header,
         )
 
     async def gacha(
-        self, user_id: Union[int, str], gacha_id: int, gacha_behavior_id: int
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        gacha_id: int,
+        gacha_behavior_id: int,
     ) -> dict:
         return await self.request(
+            system_info,
             "PUT",
             f"user/{user_id}/gacha/{gacha_id}/gachaBehaviorId/{gacha_behavior_id}",
         )
 
     async def receive_presents(
-        self, user_id: Union[int, str], present_ids: list[str]
+        self, system_info: SystemInfo, user_id: Union[int, str], present_ids: list[str]
     ) -> dict:
         return await self.request(
-            "POST", f"user/{user_id}/present", data={"presentIds": present_ids}
+            system_info,
+            "POST",
+            f"user/{user_id}/present",
+            data={"presentIds": present_ids},
         )
 
     async def start_solo_live(
         self,
+        system_info: SystemInfo,
         user_id: Union[int, str],
         music_id: int,
         music_difficulty_id: int,
@@ -589,6 +607,7 @@ class API:
         is_auto: bool,
     ) -> dict:
         return await self.request(
+            system_info,
             "POST",
             f"user/{user_id}/live",
             data={
@@ -603,6 +622,7 @@ class API:
 
     async def end_solo_live(
         self,
+        system_info: SystemInfo,
         user_id: Union[int, str],
         live_id: str,
         score: int,
@@ -617,6 +637,7 @@ class API:
         continue_count: int,
     ) -> dict:
         return await self.request(
+            system_info,
             "PUT",
             f"user/{user_id}/live/{live_id}",
             data={
@@ -635,6 +656,7 @@ class API:
 
     async def get_event_rankings(
         self,
+        system_info: SystemInfo,
         user_id: Union[int, str],
         event_id: int,
         target_user_id: Union[int, str, None] = None,
@@ -651,17 +673,29 @@ class API:
             "lowerLimit": lower_limit,
         }
         return await self.request(
-            "GET", f"user/{user_id}/event/{event_id}/ranking", params=params
+            system_info,
+            "GET",
+            f"user/{user_id}/event/{event_id}/ranking",
+            params=params,
         )
 
-    async def get_event_teams_player_count(self, event_id: int) -> dict:
-        return await self.request("GET", f"cheerful-carnival-team-count/{event_id}")
+    async def get_event_teams_player_count(
+        self, system_info: SystemInfo, event_id: int
+    ) -> dict:
+        return await self.request(
+            system_info, "GET", f"cheerful-carnival-team-count/{event_id}"
+        )
 
-    async def get_event_teams_point(self, event_id: int) -> dict:
-        return await self.request("GET", f"cheerful-carnival-team-point/{event_id}")
+    async def get_event_teams_point(
+        self, system_info: SystemInfo, event_id: int
+    ) -> dict:
+        return await self.request(
+            system_info, "GET", f"cheerful-carnival-team-point/{event_id}"
+        )
 
     async def get_rank_match_rankings(
         self,
+        system_info: SystemInfo,
         user_id: Union[int, str],
         rank_match_season_id: int,
         target_user_id: Union[int, str, None] = None,
@@ -678,21 +712,26 @@ class API:
             "lowerLimit": lower_limit,
         }
         return await self.request(
+            system_info,
             "GET",
             f"user/{user_id}/rank-match-season/{rank_match_season_id}/ranking",
             params=params,
         )
 
-    async def get_room_invitations(self, user_id: Union[int, str]) -> dict:
-        return await self.request("GET", f"user/{user_id}/invitation")
+    async def get_room_invitations(
+        self, system_info: SystemInfo, user_id: Union[int, str]
+    ) -> dict:
+        return await self.request(system_info, "GET", f"user/{user_id}/invitation")
 
     async def send_friend_request(
         self,
+        system_info: SystemInfo,
         user_id: Union[int, str],
         target_user_id: Union[int, str],
         message: Optional[str] = None,
     ) -> dict:
         return await self.request(
+            system_info,
             "POST",
             f"user/{user_id}/friend/{target_user_id}",
             data={
@@ -702,26 +741,43 @@ class API:
         )
 
     async def reject_friend_request(
-        self, user_id: Union[int, str], request_user_id: Union[int, str]
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        request_user_id: Union[int, str],
     ) -> dict:
         params = {
             "type": "reject_friend_request",
         }
         return await self.request(
-            "DELETE", f"user/{user_id}/friend/{request_user_id}", params=params
+            system_info,
+            "DELETE",
+            f"user/{user_id}/friend/{request_user_id}",
+            params=params,
         )
 
     async def accept_friend_request(
-        self, user_id: Union[int, str], request_user_id: Union[int, str]
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        request_user_id: Union[int, str],
     ) -> dict:
-        return await self.request("PUT", f"user/{user_id}/friend/{request_user_id}")
+        return await self.request(
+            system_info, "PUT", f"user/{user_id}/friend/{request_user_id}"
+        )
 
     async def remove_friend(
-        self, user_id: Union[int, str], friend_user_id: Union[int, str]
+        self,
+        system_info: SystemInfo,
+        user_id: Union[int, str],
+        friend_user_id: Union[int, str],
     ) -> dict:
         params = {
             "type": "release_friend",
         }
         return await self.request(
-            "DELETE", f"user/{user_id}/friend/{friend_user_id}", params=params
+            system_info,
+            "DELETE",
+            f"user/{user_id}/friend/{friend_user_id}",
+            params=params,
         )

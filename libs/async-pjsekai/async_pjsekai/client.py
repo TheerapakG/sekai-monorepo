@@ -7,16 +7,18 @@ import aiofiles
 import aiofiles.os
 from aiohttp.abc import AbstractCookieJar
 from asyncio.locks import Lock
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
 import dataclasses
 from functools import wraps
+from json import loads, dumps, JSONDecodeError
 import logging
+import msgpack
+from pathlib import Path
 from types import TracebackType
 from typing import AsyncIterator, Coroutine, Callable, Optional, Type, TypeVar, Union
 from typing_extensions import ParamSpec, Concatenate
-from json import loads, dumps, JSONDecodeError
-from pathlib import Path
 
+from async_pjsekai.enums.platform import AssetOS
 from async_pjsekai.enums.tutorial_status import TutorialStatus, Unit
 from async_pjsekai.models.master_data import MasterData
 from async_pjsekai.models.system_info import SystemInfo, AppVersionStatus
@@ -40,12 +42,14 @@ from async_pjsekai.live import SoloLive, LiveNotActive, LiveDead
 from .models.converters import msgpack_converter
 
 P = ParamSpec("P")
+S = TypeVar("S")
 R = TypeVar("R")
 
 
 log = logging.getLogger(__name__)
 
 
+# TODO: multiple read / one write
 class SystemInfoMutex:
     _lock: Lock
     _system_info: SystemInfo
@@ -308,8 +312,8 @@ class UserDataMutex:
         async with self._lock:
             if self.user_data_file_path is not None:
                 try:
-                    async with aiofiles.open(self.user_data_file_path, "r") as f:
-                        await self._set_value(loads(await f.read()))
+                    async with aiofiles.open(self.user_data_file_path, "rb") as f:
+                        await self._set_value(msgpack.loads(await f.read()))
                 except (FileNotFoundError, JSONDecodeError):
                     await self._set_value(dict())
             else:
@@ -321,8 +325,8 @@ class UserDataMutex:
             temp_path = self.user_data_file_path.with_suffix(
                 self.user_data_file_path.suffix + ".tmp"
             )
-            async with aiofiles.open(temp_path, "w") as f:
-                await f.write(dumps(self._user_data, indent=2, ensure_ascii=False))
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(msgpack.dumps(self._user_data))
             await aiofiles.os.replace(temp_path, self.user_data_file_path)
 
     async def _set_value(self, new_value: dict):
@@ -384,6 +388,71 @@ class Client:
                     try:
                         return await func(self, *args, **kwargs)
                     except AppUpdateRequired as e:
+                        print(e)
+                        await self.update_app(
+                            e.app_version, e.app_hash, e.multi_play_version
+                        )
+                        await self.update_all()
+                        raise
+                    except MultipleUpdatesRequired as e:
+                        print(e)
+                        await self.update_asset(e.asset_version, e.asset_hash)
+                        await self.update_data(e.data_version, e.app_version_status)
+                        raise
+                    except AssetUpdateRequired as e:
+                        print(e)
+                        await self.update_asset(e.asset_version, e.asset_hash)
+                        raise
+                    except DataUpdateRequired as e:
+                        print(e)
+                        await self.update_data(e.data_version, e.app_version_status)
+                        raise
+                    except UpdateRequired:
+                        print("all")
+                        await self.update_all()
+                        raise
+                except UpdateRequired:
+                    return await func(self, *args, **kwargs)
+            return await func(self, *args, **kwargs)
+
+        return wrapper_auto_update
+
+    def _auto_session_refresh_contextmanager(func: Callable[Concatenate["Client", P], AbstractAsyncContextManager[R]]) -> Callable[Concatenate["Client", P], AbstractAsyncContextManager[R]]:  # type: ignore[misc]
+        @asynccontextmanager
+        @wraps(func)
+        async def wrapper_auto_session_refresh(
+            self: "Client", *args: P.args, **kwargs: P.kwargs
+        ) -> R:
+            try:
+                async with func(self, *args, **kwargs) as r:
+                    yield r
+            except SessionExpired:
+                if self.auto_session_refresh:
+                    await self.refresh_signed_cookie()
+                    if (
+                        self.is_logged_in
+                        and self.user_id is not None
+                        and self.credential is not None
+                    ):
+                        await self.login(self.user_id, self.credential)
+                    async with func(self, *args, **kwargs) as r:
+                        yield r
+                raise
+
+        return wrapper_auto_session_refresh
+
+    def _auto_update_contextmanager(func: Callable[Concatenate["Client", P], AbstractAsyncContextManager[R]]) -> Callable[Concatenate["Client", P], AbstractAsyncContextManager[R]]:  # type: ignore[misc]
+        @asynccontextmanager
+        @wraps(func)
+        async def wrapper_auto_update(
+            self: "Client", *args: P.args, **kwargs: P.kwargs
+        ) -> R:
+            if self.auto_update:
+                try:
+                    try:
+                        async with func(self, *args, **kwargs) as r:
+                            yield r
+                    except AppUpdateRequired as e:
                         await self.update_app(
                             e.app_version, e.app_hash, e.multi_play_version
                         )
@@ -403,8 +472,10 @@ class Client:
                         await self.update_all()
                         raise
                 except UpdateRequired:
-                    return await func(self, *args, **kwargs)
-            return await func(self, *args, **kwargs)
+                    async with func(self, *args, **kwargs) as r:
+                        yield r
+            async with func(self, *args, **kwargs) as r:
+                yield r
 
         return wrapper_auto_update
 
@@ -461,6 +532,12 @@ class Client:
     async def system_info(self):
         async with self._system_info as system_info:
             yield system_info
+
+    @property
+    @asynccontextmanager
+    async def system_info_replace(self):
+        async with self._system_info as system_info:
+            yield system_info, self._system_info._replace_value
 
     @asynccontextmanager
     async def loads_system_info(self, data: bytes):
@@ -702,9 +779,6 @@ class Client:
         master_data_file_path: Optional[str] = None,
         user_data_file_path: Optional[str] = None,
         asset_directory: Optional[str] = None,
-        app_version: Optional[str] = None,
-        app_hash: Optional[str] = None,
-        multi_play_version: Optional[str] = None,
         api_domain: Optional[str] = None,
         asset_bundle_domain: str = API.DEFAULT_ASSET_BUNDLE_DOMAIN,
         asset_bundle_info_domain: str = API.DEFAULT_ASSET_BUNDLE_INFO_DOMAIN,
@@ -742,27 +816,26 @@ class Client:
         self._master_data = MasterDataMutex(_master_data_file_path)
         self._user_data = UserDataMutex(_user_data_file_path)
 
+        self._api_manager = API(
+            platform=platform,
+            key=key,
+            iv=iv,
+            jwt_secret=jwt_secret,
+            api_domain=api_domain or API.DEFAULT_API_DOMAIN,
+            asset_bundle_domain=asset_bundle_domain,
+            asset_bundle_info_domain=asset_bundle_info_domain,
+            game_version_domain=game_version_domain,
+            signature_domain=signature_domain,
+            enable_api_encryption=enable_api_encryption,
+            enable_asset_bundle_encryption=enable_asset_bundle_encryption,
+            enable_asset_bundle_info_encryption=enable_asset_bundle_info_encryption,
+            enable_game_version_encryption=enable_game_version_encryption,
+            enable_signature_encryption=enable_signature_encryption,
+            server_number=server_number,
+        )
+
         self._user_id = None
         self._credential = None
-
-        self._platform = platform
-        self._key = key
-        self._iv = iv
-        self._jwt_secret = jwt_secret
-        self._app_version = app_version
-        self._app_hash = app_hash
-        self._multi_play_version = multi_play_version
-        self._api_domain = api_domain
-        self._asset_bundle_domain = asset_bundle_domain
-        self._asset_bundle_info_domain = asset_bundle_info_domain
-        self._game_version_domain = game_version_domain
-        self._signature_domain = signature_domain
-        self._enable_api_encryption = enable_api_encryption
-        self._enable_asset_bundle_encryption = enable_asset_bundle_encryption
-        self._enable_asset_bundle_info_encryption = enable_asset_bundle_info_encryption
-        self._enable_game_version_encryption = enable_game_version_encryption
-        self._enable_signature_encryption = enable_signature_encryption
-        self._server_number = server_number
 
         self._update_all_on_init = update_all_on_init
 
@@ -789,25 +862,6 @@ class Client:
 
                 await self._asset.load()
 
-            self._api_manager = API(
-                platform=self._platform,
-                key=self._key,
-                iv=self._iv,
-                jwt_secret=self._jwt_secret,
-                system_info=system_info,
-                api_domain=self._api_domain or API.DEFAULT_API_DOMAIN,
-                asset_bundle_domain=self._asset_bundle_domain,
-                asset_bundle_info_domain=self._asset_bundle_info_domain,
-                game_version_domain=self._game_version_domain,
-                signature_domain=self._signature_domain,
-                enable_api_encryption=self._enable_api_encryption,
-                enable_asset_bundle_encryption=self._enable_asset_bundle_encryption,
-                enable_asset_bundle_info_encryption=self._enable_asset_bundle_info_encryption,
-                enable_game_version_encryption=self._enable_game_version_encryption,
-                enable_signature_encryption=self._enable_signature_encryption,
-                server_number=self._server_number,
-            )
-
         await self.refresh_signed_cookie()
 
         if self.api_manager.key is None or self.api_manager.iv is None:
@@ -816,16 +870,13 @@ class Client:
         if update_app:
             await self.update_app()
 
-        self.game_version = msgpack_converter.loads(
-            await self.api_manager.get_game_version_packed(), GameVersion
-        )
-        if self._api_domain is not None:
-            self.api_domain = self._api_domain
-        else:
+        async with self.system_info as system_info:
+            self.game_version = msgpack_converter.loads(
+                await self.api_manager.get_game_version_packed(system_info), GameVersion
+            )
+
             if self.game_version.domain is not None:
                 self.api_domain = self.game_version.domain
-            else:
-                self.api_domain = API.DEFAULT_API_DOMAIN
 
         if self._update_all_on_init:
             await self.update_all()
@@ -838,14 +889,17 @@ class Client:
     @_auto_update
     @_auto_session_refresh
     async def register(self) -> dict:
-        response: dict = await self.api_manager.register()
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.register(system_info)
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     async def login(self, user_id: Union[int, str], credential: str) -> dict:
         async with self.system_info as system_info:
-            response: dict = await self.api_manager.authenticate(user_id, credential)
+            response: dict = await self.api_manager.authenticate(
+                system_info, user_id, credential
+            )
             self._user_id = user_id
             self._credential = credential
 
@@ -887,9 +941,11 @@ class Client:
                 ):
                     raise DataUpdateRequired(info.data_version, info.app_version_status.value)  # type: ignore
 
-            await self.set_user_data(await self.api_manager.get_user_data(user_id))
+            await self.set_user_data(
+                await self.api_manager.get_user_data(system_info, user_id)
+            )
             await self._update_user_resources(
-                await self.api_manager.get_login_bonus(user_id)
+                await self.api_manager.get_login_bonus(system_info, user_id)
             )
             return response
 
@@ -897,24 +953,26 @@ class Client:
     @_auto_session_refresh
     @_auth_required
     async def reload_user_data(self, name: Optional[str] = None) -> dict:
-        user_data = await self.api_manager.get_user_data(self.user_id, name)  # type: ignore[arg-type]
+        async with self.system_info as system_info:
+            user_data = await self.api_manager.get_user_data(system_info, self.user_id, name)  # type: ignore[arg-type]
         await self.set_user_data(user_data)
         return user_data
 
     @_auto_update
     @_auto_session_refresh
     async def check_version(self, bypass_availability: bool = False) -> SystemInfo:
-        response: dict = await self.api_manager.get_system_info()
-        app_versions: list[SystemInfo] = [
-            app_version_info
-            for app_version_info in (
-                msgpack_converter.structure(app_version, SystemInfo)
-                for app_version in response["appVersions"]
-            )
-            if bypass_availability
-            or app_version_info.app_version_status is not AppVersionStatus.NOT_AVAILABLE
-        ]
         async with self.system_info as system_info:
+            response: dict = await self.api_manager.get_system_info(system_info)
+            app_versions: list[SystemInfo] = [
+                app_version_info
+                for app_version_info in (
+                    msgpack_converter.structure(app_version, SystemInfo)
+                    for app_version in response["appVersions"]
+                )
+                if bypass_availability
+                or app_version_info.app_version_status
+                is not AppVersionStatus.NOT_AVAILABLE
+            ]
             if len(app_versions) > 0:
                 matching_app_version_info: list[SystemInfo] = [
                     app_version_info
@@ -1006,23 +1064,22 @@ class Client:
             app_version=app_version,
             app_hash=app_hash,
             multi_play_version=multi_play_version,
-        ) as system_info:
+        ):
             log.info(f"updated app: {app_version}")
-            self.api_manager.system_info = system_info
 
     @_auto_session_refresh
     async def update_data(self, data_version: str, app_version_status: str) -> None:
-        async with self.loads_coro_master_data(
-            self.api_manager.get_master_data_packed(data_version)
-        ):
-            pass
+        async with self.system_info as system_info:
+            async with self.loads_coro_master_data(
+                self.api_manager.get_master_data_packed(system_info, data_version)
+            ):
+                pass
 
         async with self.replace_system_info(
             data_version=data_version,
             app_version_status=app_version_status,
-        ) as system_info:
+        ):
             log.info(f"updated data: {data_version}")
-            self.api_manager.system_info = system_info
 
     @_auto_session_refresh
     async def update_asset(self, asset_version: str, asset_hash: str) -> None:
@@ -1031,13 +1088,14 @@ class Client:
         else:
             self._asset = Asset(asset_version, asset_hash, self.asset_directory)
 
-        async with self._asset.get_asset_bundle_info(
-            self.api_manager
-        ), self.replace_system_info(
-            asset_version=asset_version, asset_hash=asset_hash
-        ) as system_info:
+        async with self.system_info_replace as (
+            system_info,
+            system_info_replace,
+        ), self._asset.get_asset_bundle_info(system_info, self.api_manager):
+            await system_info_replace(
+                asset_version=asset_version, asset_hash=asset_hash
+            )
             log.info(f"updated asset: {asset_version}")
-            self.api_manager.system_info = system_info
 
     async def update_all(self) -> bool:
         try:
@@ -1059,17 +1117,20 @@ class Client:
         return False
 
     async def refresh_signed_cookie(self) -> AbstractCookieJar:
-        cookies: dict[str, str] = {
-            k: v
-            for k, v in (
-                cookie.split("=")
-                for cookie in (
-                    c.strip()
-                    for c in (await self.api_manager.get_signed_cookie()).split(";")
+        async with self.system_info as system_info:
+            cookies: dict[str, str] = {
+                k: v
+                for k, v in (
+                    cookie.split("=")
+                    for cookie in (
+                        c.strip()
+                        for c in (
+                            await self.api_manager.get_signed_cookie(system_info)
+                        ).split(";")
+                    )
+                    if cookie != ""
                 )
-                if cookie != ""
-            )
-        }
+            }
         self.api_manager.session.cookie_jar.clear()
         self.api_manager.session.cookie_jar.update_cookies(cookies)
         return self.api_manager.session.cookie_jar
@@ -1077,40 +1138,48 @@ class Client:
     @_auto_update
     @_auto_session_refresh
     async def ping(self) -> dict:
-        return await self.api_manager.ping()
+        async with self.system_info as system_info:
+            return await self.api_manager.ping(system_info)
 
     @_auto_update
     @_auto_session_refresh
     async def get_notices(self) -> list[Information]:
-        return [
-            msgpack_converter.structure(information, Information)
-            for information in (await self.api_manager.get_notices())["informations"]
-        ]
+        async with self.system_info as system_info:
+            return [
+                msgpack_converter.structure(information, Information)
+                for information in (await self.api_manager.get_notices(system_info))[
+                    "informations"
+                ]
+            ]
 
     @_auto_update
-    @_auth_required
     @_auto_session_refresh
+    @_auth_required
     async def transfer_out(self, password: str) -> dict:
-        response: dict = await self.api_manager.generate_transfer_code(
-            self.user_id,  # type: ignore[arg-type]
-            password,
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.generate_transfer_code(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                password,
+            )
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     async def transfer_check(self, transfer_code: str, password: str) -> dict:
-        response: dict = await self.api_manager.checkTransferCode(
-            transfer_code, password
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.checkTransferCode(
+                system_info, transfer_code, password
+            )
         return response
 
     @_auto_update
     @_auto_session_refresh
     async def transfer_in(self, transfer_code: str, password: str) -> dict:
-        response: dict = await self.api_manager.generate_credential(
-            transfer_code, password
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.generate_credential(
+                system_info, transfer_code, password
+            )
         user_id: Union[int, str] = response["afterUserGamedata"]["userId"]
         credential: str = response["credential"]
         return await self.login(user_id, credential)
@@ -1123,28 +1192,33 @@ class Client:
             current_tutorial_status: TutorialStatus = TutorialStatus(
                 user_data["userTutorial"]["tutorialStatus"]
             )
-        response: dict = await self.api_manager.set_tutorial_status(
-            self.user_id,  # type: ignore[arg-type]
-            current_tutorial_status.next(unit),
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.set_tutorial_status(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                current_tutorial_status.next(unit),
+            )
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def receive_present(self, present_id) -> dict:
-        response: dict = await self.api_manager.receive_presents(
-            self.user_id,  # type: ignore[arg-type]
-            [present_id],
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.receive_presents(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                [present_id],
+            )
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def receive_all_presents(self) -> dict:
-        async with self.user_data as user_data:
+        async with self.system_info as system_info, self.user_data as user_data:
             response: dict = await self.api_manager.receive_presents(
+                system_info,
                 self.user_id,  # type: ignore[arg-type]
                 [present["presentId"] for present in user_data["userPresents"]],
             )
@@ -1154,24 +1228,27 @@ class Client:
     @_auto_session_refresh
     @_auth_required
     async def gacha(self, gacha_id: int, gach_behavior_id: int) -> dict:
-        response: dict = await self.api_manager.gacha(
-            self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.gacha(
+                system_info, self.user_id, gacha_id, gach_behavior_id  # type: ignore[arg-type]
+            )
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def start_solo_live(self, live: SoloLive):
-        response: dict = await self.api_manager.start_solo_live(
-            self.user_id,  # type: ignore[arg-type]
-            live.music_id,
-            live.music_difficulty_id,
-            live.music_vocal_id,
-            live.deck_id,
-            live.boost_count,
-            live.is_auto,
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.start_solo_live(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                live.music_id,
+                live.music_difficulty_id,
+                live.music_vocal_id,
+                live.deck_id,
+                live.boost_count,
+                live.is_auto,
+            )
         live.start(response["userLiveId"], response["skills"], response["comboCutins"])
         return await self._update_user_resources(response)
 
@@ -1183,20 +1260,22 @@ class Client:
             raise LiveNotActive
         if live.life <= 0:
             raise LiveDead
-        response: dict = await self.api_manager.end_solo_live(
-            self.user_id,  # type: ignore[arg-type]
-            live.live_id,
-            live.score,
-            live.perfect_count,
-            live.great_count,
-            live.good_count,
-            live.bad_count,
-            live.miss_count,
-            live.max_combo,
-            live.life,
-            live.tap_count,
-            live.continue_count,
-        )
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.end_solo_live(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                live.live_id,
+                live.score,
+                live.perfect_count,
+                live.great_count,
+                live.good_count,
+                live.bad_count,
+                live.miss_count,
+                live.max_combo,
+                live.life,
+                live.tap_count,
+                live.continue_count,
+            )
         live.end()
         return await self._update_user_resources(response)
 
@@ -1213,24 +1292,30 @@ class Client:
     ) -> dict:
         if target_user_id is None and target_rank is None:
             target_user_id = self.user_id
-        return await self.api_manager.get_event_rankings(
-            self.user_id,  # type: ignore[arg-type]
-            event_id,
-            target_user_id,
-            target_rank,
-            higher_limit,
-            lower_limit,
-        )
+        async with self.system_info as system_info:
+            return await self.api_manager.get_event_rankings(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                event_id,
+                target_user_id,
+                target_rank,
+                higher_limit,
+                lower_limit,
+            )
 
     @_auto_update
     @_auto_session_refresh
     async def get_event_teams_player_count(self, event_id: int) -> dict:
-        return await self.api_manager.get_event_teams_player_count(event_id)
+        async with self.system_info as system_info:
+            return await self.api_manager.get_event_teams_player_count(
+                system_info, event_id
+            )
 
     @_auto_update
     @_auto_session_refresh
     async def get_event_teams_point(self, event_id: int) -> dict:
-        return await self.api_manager.get_event_teams_point(event_id)
+        async with self.system_info as system_info:
+            return await self.api_manager.get_event_teams_point(system_info, event_id)
 
     @_auto_update
     @_auto_session_refresh
@@ -1245,14 +1330,16 @@ class Client:
     ) -> dict:
         if target_user_id is None and target_rank is None:
             target_user_id = self.user_id
-        return await self.api_manager.get_rank_match_rankings(
-            self.user_id,  # type: ignore[arg-type]
-            rank_match_season_id,
-            target_user_id,
-            target_rank,
-            higher_limit,
-            lower_limit,
-        )
+        async with self.system_info as system_info:
+            return await self.api_manager.get_rank_match_rankings(
+                system_info,
+                self.user_id,  # type: ignore[arg-type]
+                rank_match_season_id,
+                target_user_id,
+                target_rank,
+                higher_limit,
+                lower_limit,
+            )
 
     @_auto_update
     @_auto_session_refresh
@@ -1260,26 +1347,56 @@ class Client:
     async def send_friend_request(
         self, user_id: Union[int, str], message: Optional[str] = None
     ) -> None:
-        response: dict = await self.api_manager.send_friend_request(self.user_id, user_id, message)  # type: ignore[arg-type]
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.send_friend_request(system_info, self.user_id, user_id, message)  # type: ignore[arg-type]
         await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def reject_friend_request(self, request_user_id: Union[int, str]) -> None:
-        response: dict = await self.api_manager.reject_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.reject_friend_request(system_info, self.user_id, request_user_id)  # type: ignore[arg-type]
         await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def accept_friend_request(self, request_user_id: Union[int, str]) -> dict:
-        response: dict = await self.api_manager.accept_friend_request(self.user_id, request_user_id)  # type: ignore[arg-type]
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.accept_friend_request(system_info, self.user_id, request_user_id)  # type: ignore[arg-type]
         return await self._update_user_resources(response)
 
     @_auto_update
     @_auto_session_refresh
     @_auth_required
     async def remove_friend(self, friend_user_id: Union[int, str]) -> dict:
-        response: dict = await self.api_manager.remove_friend(self.user_id, friend_user_id)  # type: ignore[arg-type]
+        async with self.system_info as system_info:
+            response: dict = await self.api_manager.remove_friend(system_info, self.user_id, friend_user_id)  # type: ignore[arg-type]
         return await self._update_user_resources(response)
+
+    @_auto_update_contextmanager
+    @_auto_session_refresh_contextmanager
+    @asynccontextmanager
+    async def download_asset_bundle(
+        self,
+        asset_bundle_name: str,
+        chunk_size: Optional[int] = None,
+        asset_bundle_domain: Optional[str] = None,
+        enable_asset_bundle_encryption: Optional[bool] = None,
+        asset_version: Optional[str] = None,
+        asset_hash: Optional[str] = None,
+        os: AssetOS = AssetOS.ANDROID,
+    ):
+        async with self.system_info as system_info:
+            async with self.api_manager.download_asset_bundle(
+                system_info,
+                asset_bundle_name,
+                chunk_size,
+                asset_bundle_domain,
+                enable_asset_bundle_encryption,
+                asset_version,
+                asset_hash,
+                os,
+            ) as asset_bundle:
+                yield asset_bundle

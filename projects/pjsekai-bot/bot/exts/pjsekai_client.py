@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 import traceback
+
 from async_pjsekai.client import Client
 from async_pjsekai.enums.enums import (
     MusicCategory,
@@ -111,7 +112,7 @@ class PjskClientCog(Cog):
             bytes(os.environ["IV"], encoding="utf-8"),
             system_info_file_path=str((pjsk_path / "system-info.msgpack").resolve()),
             master_data_file_path=str((pjsk_path / "master-data.msgpack").resolve()),
-            user_data_file_path=str((pjsk_path / "user-data.json").resolve()),
+            user_data_file_path=str((pjsk_path / "user-data.msgpack").resolve()),
             asset_directory=str((pjsk_path / "asset").resolve()),
         )
 
@@ -251,7 +252,7 @@ class PjskClientCog(Cog):
             paths: list[str] = []
             tasks: list[asyncio.Task] = []
 
-            async with self.pjsk_client.api_manager.download_asset_bundle(
+            async with self.pjsk_client.download_asset_bundle(
                 asset_bundle_str
             ) as asset_bundle:
                 await aiofiles.os.makedirs(
@@ -444,12 +445,6 @@ class PjskClientCog(Cog):
     @update_data.before_loop
     async def before_diff_musics(self):
         await self.client.wait_until_ready()
-
-
-def get_pjsk_client_cog(client: BotClient):
-    if cog := client.get_cog("PjskClientCog"):
-        if isinstance(cog, PjskClientCog):
-            return cog
 
 
 async def setup(client: BotClient):

@@ -8,53 +8,77 @@ import dateutil.parser
 import discord
 from discord.ext.commands import hybrid_group, Cog, Context
 from async_pjsekai.enums.enums import CharacterType
-from typing import Optional, Literal
+from typing import Optional, Literal, TYPE_CHECKING
 
-from .pjsekai_client import get_pjsk_client_cog
-from ..bot.client import BOT_VERSION, BotClient
+
+from ..bot.client import BotClient
+
+if TYPE_CHECKING:
+    from .pjsekai_client import PjskClientCog
+
+
+def get_pjsk_client_cog(client: BotClient):
+    from .pjsekai_client import PjskClientCog  # get fresh version of cog
+
+    if cog := client.get_cog(PjskClientCog.__cog_name__):
+        if isinstance(cog, PjskClientCog):
+            return cog
+
+
+def get_music_datas(client_cog: "PjskClientCog", after: datetime.datetime):
+    musics_by_publish_at_list = client_cog.musics_by_publish_at_list
+    musics = musics_by_publish_at_list[
+        bisect.bisect_right(
+            musics_by_publish_at_list,
+            after,
+            key=lambda music: music.published_at if music.published_at else -1,
+        ) :
+    ]
+    return [client_cog.music_data_from_music(m) for m in musics]
 
 
 class MusicListEmbedView(discord.ui.View):
-    def __init__(self, time: datetime.datetime, index: int = 1):
+    def __init__(self, after: datetime.datetime, index: int = 1):
         super().__init__()
-        self.time = time
+        self.after = after
         self.index = index
 
     async def process(self, client: BotClient):
-        if pjsk_client_cog := get_pjsk_client_cog(client):
-            yield "defer", {}
+        yield "defer", {}
+        client_cog = get_pjsk_client_cog(client)
 
-            musics_by_publish_at_list = pjsk_client_cog.musics_by_publish_at_list
-            musics = musics_by_publish_at_list[
-                bisect.bisect_right(
-                    musics_by_publish_at_list,
-                    self.time,
-                    key=lambda music: music.published_at if music.published_at else -1,
-                ) :
-            ]
-            music_datas = [pjsk_client_cog.music_data_from_music(m) for m in musics]
+        if client_cog is None:
+            out_embed = client.generate_embed(
+                title=f"Music releasing after <t:{int(self.after.timestamp())}:f> ({len(music_datas)})",
+                description="Client not loaded!",
+            )
+            yield "send", {"embed": out_embed}
+            return
 
-            if len(music_datas) == 0:
-                out_embed = client.generate_embed(
-                    title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({len(music_datas)})",
-                    description="None!",
-                )
-                yield "send", {"embed": out_embed}
-            else:
-                self.index = max(min(self.index, len(music_datas)), 1)
-                out_embed = client.generate_embed(
-                    title=f"Music releasing after <t:{int(self.time.timestamp())}:f> ({self.index}/{len(music_datas)})"
-                )
-                out_embed_file = await pjsk_client_cog.add_music_embed_fields(
-                    music_datas[self.index - 1], out_embed, set_title=False
-                )
-                yield "send", {
-                    "files": [out_embed_file]
-                    if out_embed_file
-                    else discord.utils.MISSING,
-                    "embed": out_embed,
-                    "view": self,
-                }
+        music_datas = get_music_datas(client_cog, self.after)
+
+        if not music_datas:
+            out_embed = client.generate_embed(
+                title=f"Music releasing after <t:{int(self.after.timestamp())}:f> ({len(music_datas)})",
+                description="None!",
+            )
+            yield "send", {"embed": out_embed}
+            return
+
+        else:
+            self.index = max(min(self.index, len(music_datas)), 1)
+            out_embed = client.generate_embed(
+                title=f"Music releasing after <t:{int(self.after.timestamp())}:f> ({self.index}/{len(music_datas)})"
+            )
+            out_embed_file = await client_cog.add_music_embed_fields(
+                music_datas[self.index - 1], out_embed, set_title=False
+            )
+            yield "send", {
+                "files": [out_embed_file] if out_embed_file else discord.utils.MISSING,
+                "embed": out_embed,
+                "view": self,
+            }
+            return
 
     async def process_context(self, ctx: Context[BotClient]):
         async for action, kwargs in self.process(ctx.bot):
@@ -109,52 +133,34 @@ class MusicCog(Cog):
 
         match design:
             case "quote":
-                if pjsk_client_cog := get_pjsk_client_cog(ctx.bot):
-                    await ctx.defer()
-                    musics_by_publish_at_list = (
-                        pjsk_client_cog.musics_by_publish_at_list
-                    )
-                    musics = musics_by_publish_at_list[
-                        bisect.bisect_right(
-                            musics_by_publish_at_list,
-                            after_dt,
-                            key=lambda music: music.published_at
-                            if music.published_at
-                            else -1,
-                        ) :
-                    ]
-                    music_datas = [
-                        pjsk_client_cog.music_data_from_music(m) for m in musics
-                    ]
-                    out_strs = (
-                        [m.get_str() for m in music_datas] if music_datas else ["None!"]
-                    )
-                    await ctx.send("\n".join(["```", *out_strs, "```"]))
+                await ctx.defer()
+                client_cog = get_pjsk_client_cog(ctx.bot)
+
+                if client_cog is None:
+                    await ctx.send("Client not loaded!")
+                    return
+
+                music_datas = get_music_datas(client_cog, after_dt)
+                out_strs = (
+                    [m.get_str() for m in music_datas] if music_datas else ["None!"]
+                )
+                await ctx.send("\n".join(["```", *out_strs, "```"]))
             case "embed":
                 view = MusicListEmbedView(after_dt)
                 await view.process_context(ctx)
             case _:
-                if pjsk_client_cog := get_pjsk_client_cog(ctx.bot):
-                    await ctx.defer()
-                    musics_by_publish_at_list = (
-                        pjsk_client_cog.musics_by_publish_at_list
-                    )
-                    musics = musics_by_publish_at_list[
-                        bisect.bisect_right(
-                            musics_by_publish_at_list,
-                            after_dt,
-                            key=lambda music: music.published_at
-                            if music.published_at
-                            else -1,
-                        ) :
-                    ]
-                    music_datas = [
-                        pjsk_client_cog.music_data_from_music(m) for m in musics
-                    ]
-                    out_strs = (
-                        [m.get_str() for m in music_datas] if music_datas else ["None!"]
-                    )
-                    await ctx.send("\n".join(out_strs))
+                await ctx.defer()
+                client_cog = get_pjsk_client_cog(ctx.bot)
+
+                if client_cog is None:
+                    await ctx.send("Client not loaded!")
+                    return
+
+                music_datas = get_music_datas(client_cog, after_dt)
+                out_strs = (
+                    [m.get_str() for m in music_datas] if music_datas else ["None!"]
+                )
+                await ctx.send("\n".join(out_strs))
 
     @music.command()
     async def view(self, ctx: Context[BotClient], id: int):
