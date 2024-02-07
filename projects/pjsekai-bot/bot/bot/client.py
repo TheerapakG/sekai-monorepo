@@ -83,5 +83,5 @@ class BotClient(Bot):
         embed = discord.Embed(
             color=color, title=title, type=type, description=description
         )
-        embed.set_footer(text=BOT_VERSION)
+        embed.set_footer(text=BOT_FOOTER)
         return embed
