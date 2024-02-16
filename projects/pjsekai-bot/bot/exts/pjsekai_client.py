@@ -17,6 +17,7 @@ import traceback
 
 from async_pjsekai.client import Client
 from async_pjsekai.enums.enums import (
+    CharacterType,
     MusicCategory,
     MusicDifficultyType,
     ResourceBoxPurpose,
@@ -37,7 +38,7 @@ from async_pjsekai.models.master_data import (
 )
 
 from ..bot.client import BOT_VERSION, BotClient
-from ..models.music import MusicData
+from ..models.music import MusicData, MusicVocalData
 
 log = logging.getLogger(__name__)
 
@@ -64,9 +65,10 @@ def defaulted_export_index(type):
 
 
 async def extract_acb_bytes(path: Path):
-    async with aiofiles.open(path, "rb") as src, aiofiles.open(
-        path.with_suffix(""), "wb"
-    ) as dst:
+    async with (
+        aiofiles.open(path, "rb") as src,
+        aiofiles.open(path.with_suffix(""), "wb") as dst,
+    ):
         await aiofiles.os.sendfile(
             dst.fileno(), src.fileno(), 0, (await aiofiles.os.stat(path)).st_size
         )
@@ -117,6 +119,7 @@ class PjskClientCog(Cog):
         )
 
         self.musics_dict: dict[int, Music] = {}
+        self.vocals_dict: dict[int, MusicVocal] = {}
         self.musics_by_publish_at_list: list[Music] = []
         self.difficulties_dict: dict[
             int, dict[MusicDifficultyType | Unknown, MusicDifficulty]
@@ -161,6 +164,12 @@ class PjskClientCog(Cog):
                     key=lambda music: music.published_at if music.published_at else -1,
                 )
 
+            self.vocals_dict.clear()
+            if music_vocals := master_data.music_vocals:
+                for vocal in music_vocals:
+                    if vocal_id := vocal.id:
+                        self.vocals_dict[vocal_id] = vocal
+
             self.difficulties_dict.clear()
             if difficulties := master_data.music_difficulties:
                 for difficulty in difficulties:
@@ -190,9 +199,9 @@ class PjskClientCog(Cog):
                                 if (detail.resource_type == ResourceType.MUSIC) and (
                                     resource_id := detail.resource_id
                                 ):
-                                    self.music_resource_boxes_dict[
-                                        resource_id
-                                    ] = resource_box
+                                    self.music_resource_boxes_dict[resource_id] = (
+                                        resource_box
+                                    )
 
             self.music_tags_dict.clear()
             if tags := master_data.music_tags:
@@ -201,10 +210,9 @@ class PjskClientCog(Cog):
                         self.music_tags_dict[music_id].add(music_tag)
 
             self.music_vocal_dict.clear()
-            if music_vocals := master_data.music_vocals:
-                for music_vocal in music_vocals:
-                    if music_id := music_vocal.music_id:
-                        self.music_vocal_dict[music_id].append(music_vocal)
+            for vocal in self.vocals_dict.values():
+                if music_id := vocal.music_id:
+                    self.music_vocal_dict[music_id].append(vocal)
 
             self.game_character_dict.clear()
             if game_characters := master_data.game_characters:
@@ -344,6 +352,24 @@ class PjskClientCog(Cog):
 
         return await self.add_music_embed_thumbnail(music, embed)
 
+    async def add_music_vocal_embed_fields(
+        self, music_vocal: MusicVocalData, embed: discord.Embed, set_publish_info=False
+    ):
+        embed.add_field(
+            name=music_vocal.caption,
+            value=music_vocal.character_str(),
+            inline=False,
+        )
+        if set_publish_info:
+            embed.add_field(
+                name="publish at", value=music_vocal.publish_at_str(), inline=False
+            )
+            embed.add_field(
+                name="release condition",
+                value=music_vocal.release_condition_str(),
+                inline=False,
+            )
+
     def music_data_from_music(self, music: Music):
         music_categories: list[MusicCategory] = (
             [
@@ -385,13 +411,67 @@ class PjskClientCog(Cog):
             tags=music_tags,
             publish_at=music.published_at,
             difficulties=music_difficulties,
-            release_condition=self.release_conditions_dict.get(
-                music.release_condition_id
-            )
-            if music.release_condition_id
-            else None,
+            release_condition=(
+                self.release_conditions_dict.get(music.release_condition_id)
+                if music.release_condition_id
+                else None
+            ),
             asset_bundle_name=music.asset_bundle_name,
         )
+
+    def music_vocal_data_from_music_vocal(self, music_vocal: MusicVocal):
+        character_list: list[str] = []
+        if characters := music_vocal.characters:
+            for character in characters:
+                if character_id := character.character_id:
+                    match character.character_type:
+                        case CharacterType.GAME_CHARACTER:
+                            if game_character := self.game_character_dict.get(
+                                character_id
+                            ):
+                                name = " ".join(
+                                    n
+                                    for n in [
+                                        game_character.first_name,
+                                        game_character.given_name,
+                                    ]
+                                    if n
+                                )
+                                ruby_name = " ".join(
+                                    n
+                                    for n in [
+                                        game_character.first_name_ruby,
+                                        game_character.given_name_ruby,
+                                    ]
+                                    if n
+                                )
+                                character_list.append(f"{name} ({ruby_name})")
+                            else:
+                                character_list.append("<unknown>")
+                        case CharacterType.OUTSIDE_CHARACTER:
+                            if (
+                                outside_character := self.outside_character_dict.get(
+                                    character_id
+                                )
+                            ) and (name := outside_character.name):
+                                character_list.append(f"{name}")
+                            else:
+                                character_list.append("<unknown>")
+                        case _:
+                            character_list.append("<unknown>")
+
+        if music := self.musics_dict.get(music_vocal.music_id):
+            return MusicVocalData(
+                music=self.music_data_from_music(music),
+                caption=music_vocal.caption,
+                character_list=character_list,
+                publish_at=music_vocal.archive_published_at,
+                release_condition=(
+                    self.release_conditions_dict.get(music_vocal.release_condition_id)
+                    if music_vocal.release_condition_id
+                    else None
+                ),
+            )
 
     async def diff_musics(self, old_musics: dict[int, Music]):
         new_musics = self.musics_dict.copy()
@@ -402,7 +482,7 @@ class PjskClientCog(Cog):
                 if len(diff["right_path"]) == 1:
                     music: Music = diff["right"]
                     music_data = self.music_data_from_music(music)
-                    if announce_channel := self.client.announce_channel:
+                    if music_channel := self.client.music_channel:
                         out_embed = self.client.generate_embed(
                             title=f"new music found!"
                         )
@@ -410,16 +490,61 @@ class PjskClientCog(Cog):
                             music_data, out_embed, set_title=False
                         )
                         if out_embed_file:
-                            await announce_channel.send(
+                            await music_channel.send(
                                 file=out_embed_file, embed=out_embed
                             )
                         else:
-                            await announce_channel.send(embed=out_embed)
+                            await music_channel.send(embed=out_embed)
+
+    async def diff_vocals(self, old_vocals: dict[int, MusicVocal]):
+        new_vocals = self.vocals_dict.copy()
+
+        music_vocals_diff = YouchamaJsonDiffer(old_vocals, new_vocals).get_diff()
+        if "dict:add" in music_vocals_diff:
+            for diff in music_vocals_diff["dict:add"]:
+                if len(diff["right_path"]) == 1:
+                    vocal: MusicVocal = diff["right"]
+                    if (vocal_channel := self.client.vocal_channel) and (
+                        vocal_data := self.music_vocal_data_from_music_vocal(vocal)
+                    ):
+                        out_embed = self.client.generate_embed(
+                            title=f"new vocal found!"
+                        )
+                        await self.add_music_vocal_embed_fields(
+                            vocal_data, out_embed, set_publish_info=True
+                        )
+                        out_embed_file = await self.add_music_embed_thumbnail(
+                            vocal_data.music, out_embed
+                        )
+                        if out_embed_file:
+                            await vocal_channel.send(
+                                file=out_embed_file, embed=out_embed
+                            )
+                        else:
+                            await vocal_channel.send(embed=out_embed)
+
+                        music_path = await self.load_asset(
+                            f"music/long/{vocal.asset_bundle_name}"
+                        )
+                        if (
+                            music_path
+                            and (directory := self.pjsk_client.asset_directory)
+                            and (
+                                file_path := next(
+                                    (directory / music_path[0]).parent.glob("*.wav"),
+                                    None,
+                                )
+                            )
+                        ):
+                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.wav"
+                            file = discord.File(file_path, filename=filename)
+                            await vocal_channel.send(file=file)
 
     @tasks.loop(seconds=300)
     async def update_data(self):
         try:
             old_musics = self.musics_dict.copy()
+            old_vocals = self.vocals_dict.copy()
 
             await self.pjsk_client.update_all()
 
@@ -427,6 +552,7 @@ class PjskClientCog(Cog):
             await self.pjsk_client.set_master_data(MasterData.create(), write=False)
 
             await self.diff_musics(old_musics)
+            await self.diff_vocals(old_vocals)
 
             self.last_update_data_exc = None
         except Exception as e:
@@ -440,6 +566,28 @@ class PjskClientCog(Cog):
                     description=f"```{traceback.format_exc()}```",
                 )
                 await announce_channel.send(embed=out_embed)
+
+                await self.pjsk_client.close()
+                pjsk_path = (
+                    Path(os.environ["PJSK_DATA"])
+                    if "PJSK_DATA" in os.environ
+                    else Path.cwd()
+                )
+                self.pjsk_client = Client(
+                    bytes(os.environ["KEY"], encoding="utf-8"),
+                    bytes(os.environ["IV"], encoding="utf-8"),
+                    system_info_file_path=str(
+                        (pjsk_path / "system-info.msgpack").resolve()
+                    ),
+                    master_data_file_path=str(
+                        (pjsk_path / "master-data.msgpack").resolve()
+                    ),
+                    user_data_file_path=str(
+                        (pjsk_path / "user-data.msgpack").resolve()
+                    ),
+                    asset_directory=str((pjsk_path / "asset").resolve()),
+                )
+                await self.pjsk_client.start()
             self.last_update_data_exc = e
 
     @update_data.before_loop

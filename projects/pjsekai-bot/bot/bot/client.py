@@ -29,6 +29,9 @@ BOT_FOOTER = f"{BOT_VERSION} by TheerapakG"
 
 class BotClient(Bot):
     announce_channel: Optional[discord.TextChannel]
+    music_channel: Optional[discord.TextChannel]
+    vocal_channel: Optional[discord.TextChannel]
+    card_channel: Optional[discord.TextChannel]
 
     def __init__(
         self,
@@ -38,16 +41,46 @@ class BotClient(Bot):
         activity = discord.Game(name=BOT_VERSION)
         super().__init__([], activity=activity, intents=intents)
         self.announce_channel = None
+        self.music_channel = None
+        self.vocal_channel = None
+        self.card_channel = None
+
+    async def setup_channel(self):
+        announce_channel = (
+            self.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
+            if "ANNOUNCE_CHANNEL" in os.environ
+            else None
+        )
+        if announce_channel and isinstance(announce_channel, discord.TextChannel):
+            self.announce_channel = announce_channel
+
+        music_channel = (
+            self.get_channel(int(os.environ["MUSIC_CHANNEL"]))
+            if "MUSIC_CHANNEL" in os.environ
+            else None
+        )
+        if music_channel and isinstance(music_channel, discord.TextChannel):
+            self.music_channel = music_channel
+
+        vocal_channel = (
+            self.get_channel(int(os.environ["VOCAL_CHANNEL"]))
+            if "VOCAL_CHANNEL" in os.environ
+            else None
+        )
+        if vocal_channel and isinstance(vocal_channel, discord.TextChannel):
+            self.vocal_channel = vocal_channel
+
+        card_channel = (
+            self.get_channel(int(os.environ["CARD_CHANNEL"]))
+            if "CARD_CHANNEL" in os.environ
+            else None
+        )
+        if card_channel and isinstance(card_channel, discord.TextChannel):
+            self.card_channel = card_channel
 
         @self.listen()
         async def on_ready():
-            announce_channel = (
-                self.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
-                if "ANNOUNCE_CHANNEL" in os.environ
-                else None
-            )
-            if announce_channel and isinstance(announce_channel, discord.TextChannel):
-                self.announce_channel = announce_channel
+            await self.setup_channel()
 
             if "TEST" not in os.environ:
                 await self.tree.sync()
@@ -55,13 +88,7 @@ class BotClient(Bot):
 
         @self.listen()
         async def on_resumed():
-            announce_channel = (
-                self.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
-                if "ANNOUNCE_CHANNEL" in os.environ
-                else None
-            )
-            if announce_channel and isinstance(announce_channel, discord.TextChannel):
-                self.announce_channel = announce_channel
+            await self.setup_channel()
 
         @self.listen()
         async def on_guild_join(guild: discord.Guild):

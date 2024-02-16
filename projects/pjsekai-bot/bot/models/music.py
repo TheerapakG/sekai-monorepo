@@ -119,3 +119,36 @@ class MusicData:
                 self.release_condition_str(),
             ]
         )
+
+
+@dataclass
+class MusicVocalData:
+    music: MusicData
+    caption: str
+    character_list: list[str]
+    publish_at: Optional[datetime.datetime]
+    release_condition: Optional[ReleaseCondition]
+
+    def character_str(self):
+        return ", ".join(self.character_list)
+
+    def publish_at_str(self):
+        return f"<t:{int(self.publish_at.timestamp())}:f>" if self.publish_at else "??"
+
+    def release_condition_str(self):
+        if not self.release_condition:
+            return "??"
+
+        match self.release_condition.id:
+            case None:
+                return "??"
+            case 1:
+                return "unlocked"
+            case 5:
+                return "shop: 2"
+            case 9:
+                return "shop: 4"
+            case 10:
+                return "present"
+            case _:
+                return f"{self.release_condition.id}: {self.release_condition.sentence}"
