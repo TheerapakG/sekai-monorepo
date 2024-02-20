@@ -45,6 +45,22 @@ class BotClient(Bot):
         self.vocal_channel = None
         self.card_channel = None
 
+        @self.listen()
+        async def on_ready():
+            await self.setup_channel()
+
+            if "TEST" not in os.environ:
+                await self.tree.sync()
+            await asyncio.gather(*(self.setup_guild(guild) for guild in self.guilds))
+
+        @self.listen()
+        async def on_resumed():
+            await self.setup_channel()
+
+        @self.listen()
+        async def on_guild_join(guild: discord.Guild):
+            await self.setup_guild(guild)
+
     async def setup_channel(self):
         announce_channel = (
             self.get_channel(int(os.environ["ANNOUNCE_CHANNEL"]))
@@ -77,22 +93,6 @@ class BotClient(Bot):
         )
         if card_channel and isinstance(card_channel, discord.TextChannel):
             self.card_channel = card_channel
-
-        @self.listen()
-        async def on_ready():
-            await self.setup_channel()
-
-            if "TEST" not in os.environ:
-                await self.tree.sync()
-            await asyncio.gather(*(self.setup_guild(guild) for guild in self.guilds))
-
-        @self.listen()
-        async def on_resumed():
-            await self.setup_channel()
-
-        @self.listen()
-        async def on_guild_join(guild: discord.Guild):
-            await self.setup_guild(guild)
 
     async def setup_guild(self, guild: discord.Guild):
         if "TEST" in os.environ:

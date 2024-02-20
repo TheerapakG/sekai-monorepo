@@ -80,7 +80,15 @@ async def extract_acb_bytes(path: Path):
         "0",
         path.with_suffix(""),
     )
-    return await process.wait()
+    await process.wait()
+    if p := next(path.parent.glob("*.wav"), None):
+        process = await asyncio.subprocess.create_subprocess_exec(
+            "/usr/bin/ffmpeg",
+            "-i",
+            p,
+            p.with_suffix(".mp3"),
+        )
+    await process.wait()
 
 
 async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
@@ -531,12 +539,12 @@ class PjskClientCog(Cog):
                             and (directory := self.pjsk_client.asset_directory)
                             and (
                                 file_path := next(
-                                    (directory / music_path[0]).parent.glob("*.wav"),
+                                    (directory / music_path[0]).parent.glob("*.mp3"),
                                     None,
                                 )
                             )
                         ):
-                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.wav"
+                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp3"
                             file = discord.File(file_path, filename=filename)
                             await vocal_channel.send(file=file)
 
