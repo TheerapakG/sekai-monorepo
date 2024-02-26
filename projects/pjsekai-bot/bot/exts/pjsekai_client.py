@@ -81,14 +81,25 @@ async def extract_acb_bytes(path: Path):
         path.with_suffix(""),
     )
     await process.wait()
-    if p := next(path.parent.glob("*.wav"), None):
-        process = await asyncio.subprocess.create_subprocess_exec(
-            "/usr/bin/ffmpeg",
-            "-i",
-            p,
-            p.with_suffix(".mp3"),
-        )
+
+
+async def convert_wav(vocal_path: Path, jacket_path: Path):
+    process = await asyncio.subprocess.create_subprocess_exec(
+        "/usr/bin/ffmpeg",
+        "-y",
+        "-loop",
+        "1",
+        "-r",
+        "1",
+        "-i",
+        jacket_path,
+        "-i",
+        vocal_path,
+        "-shortest",
+        vocal_path.with_suffix(".mp4"),
+    )
     await process.wait()
+    return vocal_path.with_suffix(".mp4")
 
 
 async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
@@ -531,21 +542,29 @@ class PjskClientCog(Cog):
                         else:
                             await vocal_channel.send(embed=out_embed)
 
-                        music_path = await self.load_asset(
+                        vocal_paths = await self.load_asset(
                             f"music/long/{vocal.asset_bundle_name}"
                         )
+                        jacket_paths = await self.load_asset(
+                            f"music/jacket/{vocal_data.music.asset_bundle_name}"
+                        )
+
+                        music_path = None
                         if (
-                            music_path
+                            vocal_paths
+                            and jacket_paths
                             and (directory := self.pjsk_client.asset_directory)
                             and (
-                                file_path := next(
-                                    (directory / music_path[0]).parent.glob("*.mp3"),
+                                vocal_path := next(
+                                    (directory / vocal_paths[0]).parent.glob("*.wav"),
                                     None,
                                 )
                             )
                         ):
-                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp3"
-                            file = discord.File(file_path, filename=filename)
+                            jacket_path = directory / jacket_paths[0]
+                            music_path = await convert_wav(vocal_path, jacket_path)
+                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp4"
+                            file = discord.File(music_path, filename=filename)
                             await vocal_channel.send(file=file)
 
     @tasks.loop(seconds=300)
