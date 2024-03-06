@@ -4,7 +4,7 @@
 
 from discord.ext.commands import hybrid_group, is_owner, Cog, Context
 
-from bot.bot.client import BotClient
+from ..bot.client import BotClient
 
 
 class ExtLoaderCog(Cog):

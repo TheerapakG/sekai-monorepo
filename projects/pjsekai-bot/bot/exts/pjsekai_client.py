@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 import traceback
+from typing import TYPE_CHECKING
 
 from async_pjsekai.client import Client
 from async_pjsekai.enums.enums import (
@@ -37,8 +38,22 @@ from async_pjsekai.models.master_data import (
     ResourceBox,
 )
 
-from ..bot.client import BOT_VERSION, BotClient
+from ..bot.client import BotClient
 from ..models.music import MusicData, MusicVocalData
+from ..schema.schema import ChannelIntentEnum
+
+
+if TYPE_CHECKING:
+    from .channel import ChannelCog
+
+
+def get_channel_cog(client: BotClient):
+    from .channel import ChannelCog  # get fresh version of cog
+
+    if cog := client.get_cog(ChannelCog.__cog_name__):
+        if isinstance(cog, ChannelCog):
+            return cog
+
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +110,14 @@ async def convert_wav(vocal_path: Path, jacket_path: Path):
         jacket_path,
         "-i",
         vocal_path,
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "baseline",
+        "-level",
+        "3.0",
+        "-pix_fmt",
+        "yuv420p",
         "-shortest",
         vocal_path.with_suffix(".mp4"),
     )
@@ -501,7 +524,10 @@ class PjskClientCog(Cog):
                 if len(diff["right_path"]) == 1:
                     music: Music = diff["right"]
                     music_data = self.music_data_from_music(music)
-                    if music_channel := self.client.music_channel:
+
+                    for music_channel in await get_channel_cog(
+                        self.client
+                    ).get_channels(ChannelIntentEnum.MUSIC_LEAK):
                         out_embed = self.client.generate_embed(
                             title=f"new music found!"
                         )
@@ -523,49 +549,52 @@ class PjskClientCog(Cog):
             for diff in music_vocals_diff["dict:add"]:
                 if len(diff["right_path"]) == 1:
                     vocal: MusicVocal = diff["right"]
-                    if (vocal_channel := self.client.vocal_channel) and (
-                        vocal_data := self.music_vocal_data_from_music_vocal(vocal)
-                    ):
-                        out_embed = self.client.generate_embed(
-                            title=f"new vocal found!"
-                        )
-                        await self.add_music_vocal_embed_fields(
-                            vocal_data, out_embed, set_publish_info=True
-                        )
-                        out_embed_file = await self.add_music_embed_thumbnail(
-                            vocal_data.music, out_embed
-                        )
-                        if out_embed_file:
-                            await vocal_channel.send(
-                                file=out_embed_file, embed=out_embed
+                    if vocal_data := self.music_vocal_data_from_music_vocal(vocal):
+                        for vocal_channel in await get_channel_cog(
+                            self.client
+                        ).get_channels(ChannelIntentEnum.VOCAL_LEAK):
+                            out_embed = self.client.generate_embed(
+                                title=f"new vocal found!"
                             )
-                        else:
-                            await vocal_channel.send(embed=out_embed)
-
-                        vocal_paths = await self.load_asset(
-                            f"music/long/{vocal.asset_bundle_name}"
-                        )
-                        jacket_paths = await self.load_asset(
-                            f"music/jacket/{vocal_data.music.asset_bundle_name}"
-                        )
-
-                        music_path = None
-                        if (
-                            vocal_paths
-                            and jacket_paths
-                            and (directory := self.pjsk_client.asset_directory)
-                            and (
-                                vocal_path := next(
-                                    (directory / vocal_paths[0]).parent.glob("*.wav"),
-                                    None,
+                            await self.add_music_vocal_embed_fields(
+                                vocal_data, out_embed, set_publish_info=True
+                            )
+                            out_embed_file = await self.add_music_embed_thumbnail(
+                                vocal_data.music, out_embed
+                            )
+                            if out_embed_file:
+                                await vocal_channel.send(
+                                    file=out_embed_file, embed=out_embed
                                 )
+                            else:
+                                await vocal_channel.send(embed=out_embed)
+
+                            vocal_paths = await self.load_asset(
+                                f"music/long/{vocal.asset_bundle_name}"
                             )
-                        ):
-                            jacket_path = directory / jacket_paths[0]
-                            music_path = await convert_wav(vocal_path, jacket_path)
-                            filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp4"
-                            file = discord.File(music_path, filename=filename)
-                            await vocal_channel.send(file=file)
+                            jacket_paths = await self.load_asset(
+                                f"music/jacket/{vocal_data.music.asset_bundle_name}"
+                            )
+
+                            music_path = None
+                            if (
+                                vocal_paths
+                                and jacket_paths
+                                and (directory := self.pjsk_client.asset_directory)
+                                and (
+                                    vocal_path := next(
+                                        (directory / vocal_paths[0]).parent.glob(
+                                            "*.wav"
+                                        ),
+                                        None,
+                                    )
+                                )
+                            ):
+                                jacket_path = directory / jacket_paths[0]
+                                music_path = await convert_wav(vocal_path, jacket_path)
+                                filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp4"
+                                file = discord.File(music_path, filename=filename)
+                                await vocal_channel.send(file=file)
 
     @tasks.loop(seconds=300)
     async def update_data(self):
@@ -584,15 +613,19 @@ class PjskClientCog(Cog):
             self.last_update_data_exc = None
         except Exception as e:
             log.exception("exception while trying to update data")
-            if (
-                announce_channel := self.client.announce_channel
-            ) and not self.last_update_data_exc:
+            if not self.last_update_data_exc:
                 out_embed = self.client.generate_embed(
                     color=discord.Color.red(),
                     title="exception while trying to update data",
                     description=f"```{traceback.format_exc()}```",
                 )
-                await announce_channel.send(embed=out_embed)
+
+                for announce_channel in await get_channel_cog(self.client).get_channels(
+                    ChannelIntentEnum.ANNOUNCE
+                ):
+                    await announce_channel.send(embed=out_embed)
+
+                self.last_update_data_exc = e
 
                 await self.pjsk_client.close()
                 pjsk_path = (
@@ -615,7 +648,6 @@ class PjskClientCog(Cog):
                     asset_directory=str((pjsk_path / "asset").resolve()),
                 )
                 await self.pjsk_client.start()
-            self.last_update_data_exc = e
 
     @update_data.before_loop
     async def before_diff_musics(self):

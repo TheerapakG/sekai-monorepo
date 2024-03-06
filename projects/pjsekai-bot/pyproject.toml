@@ -22,3 +22,5 @@ python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.0"
 UnityPy = "^1.9.28"
 async-pjsekai = { path="../../libs/async-pjsekai", develop=true }
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.28"}
+asyncpg = "^0.29.0"

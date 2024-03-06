@@ -11,8 +11,10 @@ from bot.bot.client import BotClient
 
 EXTS = [
     "bot.exts.ext_loader",
+    "bot.exts.channel",
     "bot.exts.pjsekai_client",
     "bot.exts.music",
+    "bot.exts.moderate",
 ]
 
 
