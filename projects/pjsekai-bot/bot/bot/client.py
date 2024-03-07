@@ -7,6 +7,7 @@ import discord
 import discord.types.embed
 from discord.ext.commands import Bot
 import git
+from meilisearch import Client as MeiliSearchClient
 import os
 from typing import Any, Optional
 
@@ -39,6 +40,7 @@ BOT_FOOTER = f"{BOT_VERSION} by TheerapakG"
 class BotClient(Bot):
     engine: Optional[AsyncEngine]
     async_session: Optional[async_sessionmaker[AsyncSession]]
+    meilisearch_client: MeiliSearchClient
 
     def __init__(
         self,
@@ -49,6 +51,9 @@ class BotClient(Bot):
         super().__init__([], activity=activity, intents=intents)
         self.engine = None
         self.async_session = None
+        self.meilisearch_client = MeiliSearchClient(
+            f"http://127.0.0.1:{os.environ['MEILISEARCH_PORT']}"
+        )
 
         @self.listen()
         async def on_ready():
@@ -60,9 +65,6 @@ class BotClient(Bot):
 
             self.engine = engine
             self.async_session = async_sessionmaker(engine, expire_on_commit=False)
-
-            if "TEST" not in os.environ:
-                await self.tree.sync()
             await asyncio.gather(*(self.setup_guild(guild) for guild in self.guilds))
 
         @self.listen()
@@ -72,7 +74,7 @@ class BotClient(Bot):
     async def setup_guild(self, guild: discord.Guild):
         if "TEST" in os.environ:
             self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+            await self.tree.sync(guild=guild)
 
     def generate_embed(
         self,

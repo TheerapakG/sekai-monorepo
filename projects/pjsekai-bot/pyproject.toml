@@ -24,3 +24,7 @@ UnityPy = "^1.9.28"
 async-pjsekai = { path="../../libs/async-pjsekai", develop=true }
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.28"}
 asyncpg = "^0.29.0"
+pykakasi = "^2.2.1"
+meilisearch = "^0.30.0"
+opencv-python = "^4.9.0.80"
+numpy = "^1.26.4"

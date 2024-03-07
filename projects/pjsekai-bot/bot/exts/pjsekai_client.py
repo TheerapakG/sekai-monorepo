@@ -2,17 +2,23 @@
 #
 # SPDX-License-Identifier: MIT
 
+from io import BytesIO
+import cv2
+import json
 import aiofiles
 import aiofiles.os
 import asyncio
 from collections import defaultdict
 from dataclasses import astuple
+import aiohttp
 import discord
 from discord.ext.commands import Cog
 import discord.ext.tasks as tasks
 import logging
+import numpy as np
 import os
 from pathlib import Path
+from pykakasi import kakasi
 import traceback
 from typing import TYPE_CHECKING
 
@@ -41,6 +47,7 @@ from async_pjsekai.models.master_data import (
 from ..bot.client import BotClient
 from ..models.music import MusicData, MusicVocalData
 from ..schema.schema import ChannelIntentEnum
+from ..utils import crop_rotated_rectangle
 
 
 if TYPE_CHECKING:
@@ -355,6 +362,38 @@ class PjskClientCog(Cog):
             embed.set_thumbnail(url=f"attachment://{filename}")
             return file
 
+    async def add_music_random_crop_thumbnail(
+        self, music: MusicData, embed: discord.Embed
+    ):
+        img_path = await self.load_asset(f"music/jacket/{music.asset_bundle_name}")
+
+        if img_path and (directory := self.pjsk_client.asset_directory):
+            filename = Path(img_path[0]).name
+            filepath = directory / img_path[0]
+
+            img = cv2.imread(str(filepath))
+
+            img_dim = min(img.shape[0], img.shape[1])
+
+            while True:
+                center = (
+                    np.random.randint(low=1, high=img_dim - 1),
+                    np.random.randint(low=1, high=img_dim - 1),
+                )
+                width = np.random.randint(low=96, high=128)
+                angle = np.random.randint(low=0, high=360)
+                rect = (center, (width, width), angle)
+                image_cropped = crop_rotated_rectangle(image=img, rect=rect)
+                if image_cropped is not None:
+                    file = discord.File(
+                        BytesIO(
+                            cv2.imencode(filepath.suffix, image_cropped)[1].tobytes()
+                        ),
+                        filename=filename,
+                    )
+                    embed.set_thumbnail(url=f"attachment://{filename}")
+                    return file
+
     async def add_music_embed_fields(
         self, music: MusicData, embed: discord.Embed, set_title=True
     ):
@@ -596,6 +635,52 @@ class PjskClientCog(Cog):
                                 file = discord.File(music_path, filename=filename)
                                 await vocal_channel.send(file=file)
 
+    async def load_i18n(self):
+        kks = kakasi()
+        text_sources = {}
+        text_sources["jp_title"] = {k: v.title for k, v in self.musics_dict.items()}
+        text_sources["jp_pronounciation"] = {
+            k: v.title for k, v in self.musics_dict.items()
+        }
+        text_sources["jp_roma"] = {
+            k: " ".join(i["hepburn"] for i in kks.convert(v))
+            for k, v in text_sources["jp_pronounciation"].items()
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://raw.githubusercontent.com/Sekai-World/sekai-i18n/main/en/music_titles.json"
+            ) as response:
+                text_sources["en_title"] = {
+                    int(k): v
+                    for k, v in (await response.json(content_type=None)).items()
+                }
+
+        if "PJSK_METADATA" in os.environ:
+            try:
+                with open(
+                    Path(os.environ["PJSK_METADATA"]) / "music.json", encoding="utf-8"
+                ) as f:
+                    text_sources["metadata"] = {
+                        int(k): v for k, v in json.load(f).items()
+                    }
+            except FileNotFoundError:
+                pass
+
+        result = {}
+        for source, texts in text_sources.items():
+            for k, v in texts.items():
+                d = result.get(k, {})
+                d[source] = v
+                result[k] = d
+
+        list_result = [{"id": k, **v} for k, v in result.items()]
+
+        index = self.client.meilisearch_client.index("musics")
+        index.add_documents(list_result, "id")
+        index.update_searchable_attributes(
+            ["jp_title", "jp_pronounciation", "jp_roma", "en_title", "metadata"]
+        )
+
     @tasks.loop(seconds=300)
     async def update_data(self):
         try:
@@ -609,6 +694,7 @@ class PjskClientCog(Cog):
 
             await self.diff_musics(old_musics)
             await self.diff_vocals(old_vocals)
+            await self.load_i18n()
 
             self.last_update_data_exc = None
         except Exception as e:

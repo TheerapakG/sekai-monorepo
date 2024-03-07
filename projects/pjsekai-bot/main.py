@@ -10,6 +10,7 @@ import os
 from bot.bot.client import BotClient
 
 EXTS = [
+    "bot.exts.command",
     "bot.exts.ext_loader",
     "bot.exts.channel",
     "bot.exts.pjsekai_client",
@@ -24,6 +25,7 @@ async def async_main():
     discord.utils.setup_logging(root=True)
 
     intents = discord.Intents.default()
+    intents.message_content = True
     client = BotClient(intents=intents)
 
     async with client:

@@ -4,5 +4,7 @@ __pycache__
 dist
 asset
 postgres
+meilisearch
+metadata
 *.json
 *.msgpack
