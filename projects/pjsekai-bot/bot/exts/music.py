@@ -4,6 +4,7 @@
 
 import asyncio
 import bisect
+from contextlib import suppress
 from dataclasses import dataclass
 import datetime
 import dateutil.parser
@@ -296,8 +297,14 @@ class MusicCog(Cog):
     async def guess(self, ctx: Context[BotClient]):
         await ctx.defer()
 
+        if (self.guess_in_progress.get(ctx.channel.id, None)) is not None:
+            out_embed = ctx.bot.generate_embed(title="active guess found!")
+            await ctx.send(embed=out_embed)
+            return
+
         if (pjsk_client_cog := get_pjsk_client_cog(ctx.bot)) is None:
             await ctx.send("please load pjsk_client extension")
+            return
 
         music = random.choice([*pjsk_client_cog.musics_dict.values()])
         music_data = pjsk_client_cog.music_data_from_music(music)
@@ -348,6 +355,7 @@ class MusicCog(Cog):
                         continue
 
                 if first == music_data.ids["m"]:
+                    del self.guess_in_progress[ctx.channel.id]
                     out_embed = ctx.bot.generate_embed(
                         title="correct!", description=music_data.title_str()
                     )
@@ -391,12 +399,19 @@ class MusicCog(Cog):
     async def endguess(self, ctx: Context[BotClient]):
         await ctx.defer()
 
-        if (guess := self.guess_in_progress[ctx.channel.id]) is None:
+        if (guess := self.guess_in_progress.pop(ctx.channel.id, None)) is None:
             out_embed = ctx.bot.generate_embed(title="no guess found!")
             await ctx.send(embed=out_embed)
+            return
 
         if (pjsk_client_cog := get_pjsk_client_cog(ctx.bot)) is None:
             await ctx.send("please load pjsk_client extension")
+            return
+
+        guess.task.cancel()
+
+        with suppress(asyncio.CancelledError):
+            await guess.task
 
         out_embed = ctx.bot.generate_embed(
             title="aww...", description=guess.music.title_str()
