@@ -298,7 +298,9 @@ class API:
             )
         if asset_version is None:
             asset_version = system_info.asset_version
-        url: str = f"https://{asset_bundle_info_domain}/api/version/{asset_version}/os/{self.platform.asset_os.value}"
+        url: str = (
+            f"https://{asset_bundle_info_domain}/api/version/{asset_version}/os/{self.platform.asset_os.value}"
+        )
         async with self.session.get(
             url, headers=self._generate_headers(system_info)
         ) as response:
@@ -355,7 +357,9 @@ class API:
             asset_hash = system_info.asset_hash
         if asset_version is None or asset_hash is None:
             raise UpdateRequired
-        url: str = f"https://{asset_bundle_domain}/{asset_version}/{asset_hash}/{os.value}/{asset_bundle_name}"
+        url: str = (
+            f"https://{asset_bundle_domain}/{asset_version}/{asset_hash}/{os.value}/{asset_bundle_name}"
+        )
         if enable_asset_bundle_encryption:
             raise NotImplementedError
         response = await self.session.get(url)
@@ -399,9 +403,11 @@ class API:
                 **({} if headers is None else headers),
             },
             params=params,
-            data=self._pack(data, enable_api_encryption)
-            if data is not None or method.casefold() == "POST".casefold()
-            else None,
+            data=(
+                self._pack(data, enable_api_encryption)
+                if data is not None or method.casefold() == "POST".casefold()
+                else None
+            ),
         ) as response:
             try:
                 response.raise_for_status()

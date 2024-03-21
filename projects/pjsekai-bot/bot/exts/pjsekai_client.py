@@ -2,25 +2,20 @@
 #
 # SPDX-License-Identifier: MIT
 
-from io import BytesIO
-import cv2
-import json
-import aiofiles
-import aiofiles.os
-import asyncio
 from collections import defaultdict
 from dataclasses import astuple
+import json
+import logging
+import os
+from pathlib import Path
+import traceback
+from typing import TYPE_CHECKING
+
 import aiohttp
 import discord
 from discord.ext.commands import Cog
 import discord.ext.tasks as tasks
-import logging
-import numpy as np
-import os
-from pathlib import Path
 from pykakasi import kakasi
-import traceback
-from typing import TYPE_CHECKING
 
 from async_pjsekai.client import Client
 from async_pjsekai.enums.enums import (
@@ -31,10 +26,9 @@ from async_pjsekai.enums.enums import (
     ResourceBoxType,
     ResourceType,
 )
-from async_pjsekai.enums.platform import Platform
 from async_pjsekai.enums.unknown import Unknown
 from async_pjsekai.models.master_data import (
-    GameCharacter,
+    Card,
     MasterData,
     Music,
     MusicDifficulty,
@@ -42,12 +36,16 @@ from async_pjsekai.models.master_data import (
     OutsideCharacter,
     ReleaseCondition,
     ResourceBox,
+    Skill,
 )
 
 from ..bot.client import BotClient
-from ..models.music import MusicData, MusicVocalData
+from ..models.card import CardData
+from ..models.game_character import GameCharacterData
+from ..models.music import MusicData
+from ..models.music_vocal import MusicVocalData
 from ..schema.schema import ChannelIntentEnum
-from ..utils import crop_rotated_rectangle
+from ..utils.asset import load_asset, convert_wav
 
 
 if TYPE_CHECKING:
@@ -68,81 +66,6 @@ import jycm.helper
 
 jycm.helper.make_json_path_key = lambda l: l
 from jycm.jycm import YouchamaJsonDiffer
-
-import UnityPy
-import UnityPy.config
-import UnityPy.files
-from UnityPy.tools.extractor import EXPORT_TYPES, export_obj
-
-UnityPy.config.FALLBACK_UNITY_VERSION = Platform.ANDROID.unity_version
-
-export_types_keys = list(EXPORT_TYPES.keys())
-
-
-def defaulted_export_index(type):
-    try:
-        return export_types_keys.index(type)
-    except (IndexError, ValueError):
-        return 999
-
-
-async def extract_acb_bytes(path: Path):
-    async with (
-        aiofiles.open(path, "rb") as src,
-        aiofiles.open(path.with_suffix(""), "wb") as dst,
-    ):
-        await aiofiles.os.sendfile(
-            dst.fileno(), src.fileno(), 0, (await aiofiles.os.stat(path)).st_size
-        )
-    process = await asyncio.subprocess.create_subprocess_exec(
-        "/usr/bin/vgmstream-cli",
-        "-o",
-        path.parent / "?n.wav",
-        "-S",
-        "0",
-        path.with_suffix(""),
-    )
-    await process.wait()
-
-
-async def convert_wav(vocal_path: Path, jacket_path: Path):
-    process = await asyncio.subprocess.create_subprocess_exec(
-        "/usr/bin/ffmpeg",
-        "-y",
-        "-loop",
-        "1",
-        "-r",
-        "1",
-        "-i",
-        jacket_path,
-        "-i",
-        vocal_path,
-        "-c:v",
-        "libx264",
-        "-profile:v",
-        "baseline",
-        "-level",
-        "3.0",
-        "-pix_fmt",
-        "yuv420p",
-        "-shortest",
-        vocal_path.with_suffix(".mp4"),
-    )
-    await process.wait()
-    return vocal_path.with_suffix(".mp4")
-
-
-async def extract(directory: Path, path: str, obj: UnityPy.files.ObjectReader):
-    log.info(f"extracting {path}")
-
-    dst = directory / path
-    await aiofiles.os.makedirs(dst.parent, exist_ok=True)
-
-    export_obj(obj, dst)  # type: ignore
-
-    match dst.suffixes:
-        case [".acb", ".bytes"]:
-            await extract_acb_bytes(dst)
 
 
 class PjskClientCog(Cog):
@@ -169,6 +92,7 @@ class PjskClientCog(Cog):
 
         self.musics_dict: dict[int, Music] = {}
         self.vocals_dict: dict[int, MusicVocal] = {}
+        self.cards_dict: dict[int, CardData] = {}
         self.musics_by_publish_at_list: list[Music] = []
         self.difficulties_dict: dict[
             int, dict[MusicDifficultyType | Unknown, MusicDifficulty]
@@ -177,8 +101,9 @@ class PjskClientCog(Cog):
         self.music_resource_boxes_dict: dict[int, ResourceBox] = {}
         self.music_tags_dict: defaultdict[int, set[str]] = defaultdict(set)
         self.music_vocal_dict: defaultdict[int, list[MusicVocal]] = defaultdict(list)
-        self.game_character_dict: dict[int, GameCharacter] = {}
+        self.game_character_dict: dict[int, GameCharacterData] = {}
         self.outside_character_dict: dict[int, OutsideCharacter] = {}
+        self.skills_dict: dict[int, Skill] = {}
 
         self.last_update_data_exc = None
 
@@ -267,7 +192,13 @@ class PjskClientCog(Cog):
             if game_characters := master_data.game_characters:
                 for character in game_characters:
                     if character_id := character.id:
-                        self.game_character_dict[character_id] = character
+                        self.game_character_dict[character_id] = GameCharacterData(
+                            ids={"gc": character.id},
+                            first_name=character.first_name,
+                            given_name=character.given_name,
+                            first_name_ruby=character.first_name_ruby,
+                            given_name_ruby=character.given_name_ruby,
+                        )
 
             self.outside_character_dict.clear()
             if outside_characters := master_data.outside_characters:
@@ -275,163 +206,40 @@ class PjskClientCog(Cog):
                     if character_id := character.id:
                         self.outside_character_dict[character_id] = character
 
-    async def load_asset(self, asset_bundle_str: str, force: bool = False) -> list[str]:
-        if (directory := self.pjsk_client.asset_directory) and (
-            asset := self.pjsk_client.asset
-        ):
-            async with asset.asset_bundle_info as (asset_bundle_info, sync):
-                bundle_hash = None
-                if asset_bundle_info and (bundles := asset_bundle_info.bundles):
-                    if asset_bundle_str in bundles:
-                        bundle_hash = bundles[asset_bundle_str].hash
+            self.skills_dict.clear()
+            if skills := master_data.skills:
+                for skill in skills:
+                    if skill_id := skill.id:
+                        self.skills_dict[skill_id] = skill
 
-            if bundle_hash is None:
-                bundle_hash = ""
-
-            if force:
-                log.info(f"downloading bundle {asset_bundle_str}")
-            else:
-                try:
-                    async with aiofiles.open(
-                        directory / "hash" / asset_bundle_str, "r"
-                    ) as f:
-                        if await f.read() == bundle_hash:
-                            log.info(f"bundle {asset_bundle_str} already updated")
-                            async with aiofiles.open(
-                                directory / "path" / asset_bundle_str, "r"
-                            ) as f:
-                                return (await f.read()).splitlines()
-                        else:
-                            log.info(f"updating bundle {asset_bundle_str}")
-                except FileNotFoundError:
-                    log.info(f"downloading bundle {asset_bundle_str}")
-
-            paths: list[str] = []
-            tasks: list[asyncio.Task] = []
-
-            async with self.pjsk_client.download_asset_bundle(
-                asset_bundle_str
-            ) as asset_bundle:
-                await aiofiles.os.makedirs(
-                    (directory / "bundle" / asset_bundle_str).parent, exist_ok=True
-                )
-                async with aiofiles.open(
-                    directory / "bundle" / f"{asset_bundle_str}.unity3d", "wb"
-                ) as f:
-                    async for chunk in asset_bundle.chunks:
-                        await f.write(chunk)
-
-            env = UnityPy.load(
-                str(directory / "bundle" / f"{asset_bundle_str}.unity3d")
-            )
-            container = sorted(
-                env.container.items(),
-                key=lambda x: defaulted_export_index(x[1].type),
-            )
-
-            await aiofiles.os.makedirs(
-                (directory / "path" / asset_bundle_str).parent, exist_ok=True
-            )
-            async with aiofiles.open(directory / "path" / asset_bundle_str, "w") as f:
-                for obj_path, obj in container:
-                    obj_path = "/".join(x for x in obj_path.split("/") if x)
-                    paths.append(obj_path)
-                    await f.write(obj_path + "\n")
-
-                    tasks.append(asyncio.create_task(extract(directory, obj_path, obj)))
-
-            await asyncio.gather(*tasks)
-
-            await aiofiles.os.makedirs(
-                (directory / "hash" / asset_bundle_str).parent, exist_ok=True
-            )
-            async with aiofiles.open(directory / "hash" / asset_bundle_str, "w") as f:
-                await f.write(bundle_hash)
-
-            log.info(f"updated bundle {asset_bundle_str}")
-            return paths
-
-        return []
-
-    async def add_music_embed_thumbnail(self, music: MusicData, embed: discord.Embed):
-        img_path = await self.load_asset(f"music/jacket/{music.asset_bundle_name}")
-
-        if img_path and (directory := self.pjsk_client.asset_directory):
-            filename = Path(img_path[0]).name
-            file = discord.File(directory / img_path[0], filename=filename)
-            embed.set_thumbnail(url=f"attachment://{filename}")
-            return file
-
-    async def add_music_random_crop_thumbnail(
-        self, music: MusicData, embed: discord.Embed
-    ):
-        img_path = await self.load_asset(f"music/jacket/{music.asset_bundle_name}")
-
-        if img_path and (directory := self.pjsk_client.asset_directory):
-            filename = Path(img_path[0]).name
-            filepath = directory / img_path[0]
-
-            img = cv2.imread(str(filepath))
-
-            img_dim = min(img.shape[0], img.shape[1])
-
-            while True:
-                center = (
-                    np.random.randint(low=1, high=img_dim - 1),
-                    np.random.randint(low=1, high=img_dim - 1),
-                )
-                width = np.random.randint(low=96, high=128)
-                angle = np.random.randint(low=0, high=360)
-                rect = (center, (width, width), angle)
-                image_cropped = crop_rotated_rectangle(image=img, rect=rect)
-                if image_cropped is not None:
-                    file = discord.File(
-                        BytesIO(
-                            cv2.imencode(filepath.suffix, image_cropped)[1].tobytes()
-                        ),
-                        filename=filename,
-                    )
-                    embed.set_thumbnail(url=f"attachment://{filename}")
-                    return file
-
-    async def add_music_embed_fields(
-        self, music: MusicData, embed: discord.Embed, set_title=True
-    ):
-        categories = music.category_strs()
-        categories_str = f"{', '.join(categories)}" if categories else None
-        tags = music.tag_long_strs()
-        tag_str = f"{', '.join(tags)}" if tags else None
-
-        if set_title:
-            embed.title = music.title_str()
-        else:
-            embed.add_field(name="title", value=music.title_str())
-
-        embed.add_field(name="ids", value=music.ids_str(), inline=False)
-        embed.add_field(
-            name="lyricist",
-            value=music.lyricist if music.lyricist else "-",
-            inline=False,
-        )
-        embed.add_field(
-            name="composer", value=music.composer if music.composer else "-"
-        )
-        embed.add_field(
-            name="arranger", value=music.arranger if music.arranger else "-"
-        )
-        embed.add_field(name="categories", value=categories_str, inline=False)
-        embed.add_field(name="tags", value=tag_str)
-        embed.add_field(name="publish at", value=music.publish_at_str(), inline=False)
-        embed.add_field(
-            name="difficulties",
-            value="\n".join(music.difficulty_long_strs()),
-            inline=False,
-        )
-        embed.add_field(
-            name="release condition", value=music.release_condition_str(), inline=False
-        )
-
-        return await self.add_music_embed_thumbnail(music, embed)
+            self.cards_dict.clear()
+            if cards := master_data.cards:
+                for card in cards:
+                    if card_id := card.id:
+                        self.cards_dict[card_id] = CardData(
+                            title=card.prefix,
+                            ids={"c": card.id},
+                            character=(
+                                self.game_character_dict.get(card.character_id)
+                                if card.character_id
+                                else None
+                            ),
+                            rarity=card.card_rarity_type,
+                            attr=card.attr,
+                            support_unit=card.support_unit,
+                            skill_name=card.card_skill_name,
+                            skill=(
+                                self.skills_dict.get(card.skill_id)
+                                if card.skill_id
+                                else None
+                            ),
+                            gacha_phrase=card.gacha_phrase,
+                            flavor_text=card.flavor_text,
+                            release_at=card.release_at,
+                            archive_published_at=card.archive_published_at,
+                            card_parameters=card.card_parameters,
+                            asset_bundle_name=card.asset_bundle_name,
+                        )
 
     async def add_music_vocal_embed_fields(
         self, music_vocal: MusicVocalData, embed: discord.Embed, set_publish_info=False
@@ -510,23 +318,7 @@ class PjskClientCog(Cog):
                             if game_character := self.game_character_dict.get(
                                 character_id
                             ):
-                                name = " ".join(
-                                    n
-                                    for n in [
-                                        game_character.first_name,
-                                        game_character.given_name,
-                                    ]
-                                    if n
-                                )
-                                ruby_name = " ".join(
-                                    n
-                                    for n in [
-                                        game_character.first_name_ruby,
-                                        game_character.given_name_ruby,
-                                    ]
-                                    if n
-                                )
-                                character_list.append(f"{name} ({ruby_name})")
+                                character_list.append(game_character.name_long_str())
                             else:
                                 character_list.append("<unknown>")
                         case CharacterType.OUTSIDE_CHARACTER:
@@ -541,18 +333,22 @@ class PjskClientCog(Cog):
                         case _:
                             character_list.append("<unknown>")
 
-        if music := self.musics_dict.get(music_vocal.music_id):
-            return MusicVocalData(
-                music=self.music_data_from_music(music),
-                caption=music_vocal.caption,
-                character_list=character_list,
-                publish_at=music_vocal.archive_published_at,
-                release_condition=(
-                    self.release_conditions_dict.get(music_vocal.release_condition_id)
-                    if music_vocal.release_condition_id
-                    else None
-                ),
-            )
+        return MusicVocalData(
+            music=(
+                self.music_data_from_music(music)
+                if (music_id := music_vocal.music_id)
+                and (music := self.musics_dict.get(music_id))
+                else None
+            ),
+            caption=music_vocal.caption,
+            character_list=character_list,
+            publish_at=music_vocal.archive_published_at,
+            release_condition=(
+                self.release_conditions_dict.get(music_vocal.release_condition_id)
+                if music_vocal.release_condition_id
+                else None
+            ),
+        )
 
     async def diff_musics(self, old_musics: dict[int, Music]):
         new_musics = self.musics_dict.copy()
@@ -570,8 +366,9 @@ class PjskClientCog(Cog):
                         out_embed = self.client.generate_embed(
                             title=f"new music found!"
                         )
-                        out_embed_file = await self.add_music_embed_fields(
-                            music_data, out_embed, set_title=False
+                        await music_data.add_embed_fields(out_embed, set_title=False)
+                        out_embed_file = await music_data.add_embed_thumbnail(
+                            self.pjsk_client, out_embed
                         )
                         if out_embed_file:
                             await music_channel.send(
@@ -598,8 +395,8 @@ class PjskClientCog(Cog):
                             await self.add_music_vocal_embed_fields(
                                 vocal_data, out_embed, set_publish_info=True
                             )
-                            out_embed_file = await self.add_music_embed_thumbnail(
-                                vocal_data.music, out_embed
+                            out_embed_file = await vocal_data.music.add_embed_thumbnail(
+                                self.pjsk_client, out_embed
                             )
                             if out_embed_file:
                                 await vocal_channel.send(
@@ -608,32 +405,54 @@ class PjskClientCog(Cog):
                             else:
                                 await vocal_channel.send(embed=out_embed)
 
-                            vocal_paths = await self.load_asset(
-                                f"music/long/{vocal.asset_bundle_name}"
+                            vocal_paths = await load_asset(
+                                self.pjsk_client,
+                                f"music/long/{vocal.asset_bundle_name}",
                             )
-                            jacket_paths = await self.load_asset(
-                                f"music/jacket/{vocal_data.music.asset_bundle_name}"
+                            jacket_paths = await load_asset(
+                                self.pjsk_client,
+                                f"music/jacket/{vocal_data.music.asset_bundle_name}",
                             )
 
                             music_path = None
                             if (
                                 vocal_paths
                                 and jacket_paths
-                                and (directory := self.pjsk_client.asset_directory)
                                 and (
                                     vocal_path := next(
-                                        (directory / vocal_paths[0]).parent.glob(
-                                            "*.wav"
-                                        ),
+                                        vocal_paths[0].parent.glob("*.wav"),
                                         None,
                                     )
                                 )
                             ):
-                                jacket_path = directory / jacket_paths[0]
+                                jacket_path = jacket_paths[0]
                                 music_path = await convert_wav(vocal_path, jacket_path)
                                 filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp4"
                                 file = discord.File(music_path, filename=filename)
                                 await vocal_channel.send(file=file)
+
+    async def diff_cards(self, old_cards: dict[int, CardData]):
+        new_cards = self.cards_dict.copy()
+
+        cards_diff = YouchamaJsonDiffer(old_cards, new_cards).get_diff()
+        if "dict:add" in cards_diff:
+            for diff in cards_diff["dict:add"]:
+                if len(diff["right_path"]) == 1:
+                    card: CardData = diff["right"]
+                    for card_channel in await get_channel_cog(self.client).get_channels(
+                        ChannelIntentEnum.CARD_LEAK
+                    ):
+                        out_embed = self.client.generate_embed(title=f"new card found!")
+                        await card.add_embed_fields(out_embed, set_title=False)
+                        out_embed_file = await card.add_embed_image(
+                            self.pjsk_client, out_embed
+                        )
+                        if out_embed_file:
+                            await card_channel.send(
+                                file=out_embed_file, embed=out_embed
+                            )
+                        else:
+                            await card_channel.send(embed=out_embed)
 
     async def load_i18n(self):
         kks = kakasi()
@@ -676,16 +495,20 @@ class PjskClientCog(Cog):
         list_result = [{"id": k, **v} for k, v in result.items()]
 
         index = self.client.meilisearch_client.index("musics")
+        index.update_ranking_rules(
+            ["exactness", "words", "typo", "proximity", "attribute", "sort"]
+        )
         index.add_documents(list_result, "id")
         index.update_searchable_attributes(
             ["jp_title", "jp_pronounciation", "jp_roma", "en_title", "metadata"]
         )
 
-    @tasks.loop(seconds=300)
+    @tasks.loop(seconds=120)
     async def update_data(self):
         try:
             old_musics = self.musics_dict.copy()
             old_vocals = self.vocals_dict.copy()
+            old_cards = self.cards_dict.copy()
 
             await self.pjsk_client.update_all()
 
@@ -694,6 +517,7 @@ class PjskClientCog(Cog):
 
             await self.diff_musics(old_musics)
             await self.diff_vocals(old_vocals)
+            await self.diff_cards(old_cards)
             await self.load_i18n()
 
             self.last_update_data_exc = None

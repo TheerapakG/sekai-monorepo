@@ -20,4 +20,12 @@ class ChannelIntent(Base):
 
     guild: Mapped[int] = mapped_column(primary_key=True, type_=BigInteger)
     channel: Mapped[int] = mapped_column(primary_key=True, type_=BigInteger)
-    intent: Mapped[ChannelIntentEnum]
+    intent: Mapped[ChannelIntentEnum] = mapped_column(primary_key=True)
+
+
+class CommandRestrict(Base):
+    __tablename__ = "command_restrict"
+
+    guild: Mapped[int] = mapped_column(primary_key=True, type_=BigInteger)
+    channel: Mapped[int] = mapped_column(primary_key=True, type_=BigInteger)
+    command: Mapped[str] = mapped_column(primary_key=True)

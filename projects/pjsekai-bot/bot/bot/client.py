@@ -18,8 +18,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from ..schema.schema import Base
-
 repo = git.Repo(search_parent_directories=True)
 date = repo.head.commit.committed_datetime
 sha = repo.head.commit.hexsha
@@ -60,8 +58,6 @@ class BotClient(Bot):
             engine = create_async_engine(
                 f"postgresql+asyncpg://{os.environ['DB_USERNAME']}:{os.environ['DB_PASSWORD']}@localhost:{os.environ['DB_PORT']}"
             )
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
 
             self.engine = engine
             self.async_session = async_sessionmaker(engine, expire_on_commit=False)
