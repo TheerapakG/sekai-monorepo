@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 import datetime
+from functools import partial
 from io import BytesIO
 from typing import Optional
 
@@ -121,7 +122,7 @@ class CardData:
             else "??"
         )
 
-    def add_embed_fields(self, embed: discord.Embed, set_title=True):
+    def _apply_embed_fields(self, set_title: bool, embed: discord.Embed):
         if set_title:
             embed.title = f"{self.title_str()}: {self.character_str()}"
         else:
@@ -155,26 +156,31 @@ class CardData:
             value=self.archive_published_at_str(),
         )
 
-    async def add_embed_image(self, client: Client, embed: discord.Embed):
+    def apply_embed_fields(self, set_title: bool = True):
+        return partial(self._apply_embed_fields, set_title)
+
+    async def get_images(self, client: Client) -> list[tuple[BytesIO, str]]:
         img_path = await load_asset(
             client, f"character/member/{self.asset_bundle_name}"
         )
 
-        if img_path:
-            filepaths_unordered = [p for p in img_path[0].parent.glob("*.png")]
-            filepaths_ordering = [
-                [p for p in filepaths_unordered if p.stem == s] for s in CARD_ORDERING
-            ]
-            filepaths = [p for ps in filepaths_ordering for p in ps]
-            for p in filepaths_unordered:
-                if p not in filepaths:
-                    filepaths.append(p)
-            filepath = filepaths[0]
-            filename = f"{self.asset_bundle_name}.{filepath.suffix}"
-            image_concat = cv2.hconcat([cv2.imread(str(p)) for p in filepaths])
-            file = discord.File(
+        if not img_path:
+            return []
+
+        filepaths_unordered = [p for p in img_path[0].parent.glob("*.png")]
+        filepaths_ordering = [
+            [p for p in filepaths_unordered if p.stem == s] for s in CARD_ORDERING
+        ]
+        filepaths = [p for ps in filepaths_ordering for p in ps]
+        for p in filepaths_unordered:
+            if p not in filepaths:
+                filepaths.append(p)
+        filepath = filepaths[0]
+        filename = f"{self.asset_bundle_name}.{filepath.suffix}"
+        image_concat = cv2.hconcat([cv2.imread(str(p)) for p in filepaths])
+        return [
+            (
                 BytesIO(cv2.imencode(filepath.suffix, image_concat)[1].tobytes()),
-                filename=filename,
+                filename,
             )
-            embed.set_image(url=f"attachment://{filename}")
-            return file
+        ]

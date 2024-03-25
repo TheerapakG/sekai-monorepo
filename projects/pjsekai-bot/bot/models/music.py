@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 import datetime
+from functools import partial
 from io import BytesIO
 from typing import Optional
 
@@ -130,7 +131,7 @@ class MusicData:
             ]
         )
 
-    def add_embed_fields(self, embed: discord.Embed, set_title=True):
+    def _apply_embed_fields(self, set_title: bool, embed: discord.Embed):
         categories = self.category_strs()
         categories_str = f"{', '.join(categories)}" if categories else None
         tags = self.tag_long_strs()
@@ -161,6 +162,9 @@ class MusicData:
             name="release condition", value=self.release_condition_str(), inline=False
         )
 
+    def apply_embed_fields(self, set_title: bool = True):
+        return partial(self._apply_embed_fields, set_title)
+
     async def get_images(self, client: Client):
         return (
             await load_asset(client, f"music/jacket/{self.asset_bundle_name}")
@@ -168,7 +172,7 @@ class MusicData:
             else []
         )
 
-    async def add_embed_random_crop_thumbnail(
+    async def _apply_embed_random_crop_thumbnail(
         self, client: Client, embed: discord.Embed
     ):
         img_path = await load_asset(client, f"music/jacket/{self.asset_bundle_name}")
@@ -199,3 +203,6 @@ class MusicData:
                     )
                     embed.set_thumbnail(url=f"attachment://{filename}")
                     return file
+
+    def apply_embed_random_crop_thumbnail(self, client: Client):
+        return partial(self._apply_embed_random_crop_thumbnail, client)

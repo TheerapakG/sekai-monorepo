@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 import datetime
+from functools import partial
 from typing import Optional
 
 from async_pjsekai.client import Client
@@ -49,7 +50,7 @@ class MusicVocalData:
             case _:
                 return f"{self.release_condition.id}: {self.release_condition.sentence}"
 
-    def add_embed_fields(self, embed: discord.Embed, set_publish_info=False):
+    def _apply_embed_fields(self, set_publish_info: bool, embed: discord.Embed):
         embed.add_field(
             name=self.caption,
             value=self.character_str(),
@@ -64,6 +65,9 @@ class MusicVocalData:
                 value=self.release_condition_str(),
                 inline=False,
             )
+
+    def apply_embed_fields(self, set_publish_info: bool = True):
+        return partial(self._apply_embed_fields, set_publish_info)
 
     async def get_images(self, client: Client):
         return await self.music.get_images(client) if self.music else []

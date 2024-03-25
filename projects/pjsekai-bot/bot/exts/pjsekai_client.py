@@ -47,7 +47,7 @@ from ..models.music import MusicData
 from ..models.music_vocal import MusicVocalData
 from ..schema.schema import ChannelIntentEnum
 from ..utils.asset import load_asset, convert_wav
-from ..utils.discord import add_embed_thumbnail
+from ..utils.discord import apply_embed_thumbnail, apply_embed_image
 
 
 if TYPE_CHECKING:
@@ -352,10 +352,10 @@ class PjskClientCog(Cog):
                         out_embed = self.client.generate_embed(
                             title=f"new music found!"
                         )
-                        music_data.add_embed_fields(out_embed, set_title=False)
+                        music_data.apply_embed_fields(set_title=False)(out_embed)
 
                         if images := await music_data.get_images(self.pjsk_client):
-                            out_embed_file = add_embed_thumbnail(out_embed, images[0])
+                            out_embed_file = apply_embed_thumbnail(images[0])(out_embed)
                             await music_channel.send(
                                 file=out_embed_file, embed=out_embed
                             )
@@ -377,8 +377,8 @@ class PjskClientCog(Cog):
                             out_embed = self.client.generate_embed(
                                 title=f"new vocal found!"
                             )
-                            vocal_data.add_embed_fields(
-                                out_embed, set_publish_info=True
+                            vocal_data.apply_embed_fields(set_publish_info=True)(
+                                out_embed
                             )
                             images, vocals = await asyncio.gather(
                                 vocal_data.get_images(self.pjsk_client),
@@ -386,8 +386,8 @@ class PjskClientCog(Cog):
                             )
 
                             if images:
-                                out_embed_file = add_embed_thumbnail(
-                                    out_embed, images[0]
+                                out_embed_file = apply_embed_thumbnail(images[0])(
+                                    out_embed
                                 )
                                 await vocal_channel.send(
                                     file=out_embed_file, embed=out_embed
@@ -423,11 +423,11 @@ class PjskClientCog(Cog):
                         ChannelIntentEnum.CARD_LEAK
                     ):
                         out_embed = self.client.generate_embed(title=f"new card found!")
-                        card.add_embed_fields(out_embed, set_title=False)
-                        out_embed_file = await card.add_embed_image(
-                            self.pjsk_client, out_embed
-                        )
-                        if out_embed_file:
+                        card.apply_embed_fields(set_title=False)(out_embed)
+                        images = await card.get_images(self.pjsk_client)
+
+                        if images:
+                            out_embed_file = apply_embed_image(*(images[0]))(out_embed)
                             await card_channel.send(
                                 file=out_embed_file, embed=out_embed
                             )
