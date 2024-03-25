@@ -16,6 +16,7 @@ EXTS = [
     "bot.exts.pjsekai_client",
     "bot.exts.music",
     "bot.exts.moderate",
+    "bot.exts.dump",
 ]
 
 

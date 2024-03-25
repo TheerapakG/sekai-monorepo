@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import asyncio
 from collections import defaultdict
 from dataclasses import astuple
 import json
@@ -46,6 +47,7 @@ from ..models.music import MusicData
 from ..models.music_vocal import MusicVocalData
 from ..schema.schema import ChannelIntentEnum
 from ..utils.asset import load_asset, convert_wav
+from ..utils.discord import add_embed_thumbnail
 
 
 if TYPE_CHECKING:
@@ -112,7 +114,8 @@ class PjskClientCog(Cog):
         update = False
         async with self.pjsk_client.master_data as (master_data, sync):
             if not any(astuple(master_data)):
-                update = True
+                async with self.pjsk_client.replace_system_info(data_version=None):
+                    update = True
         if update:
             await self.pjsk_client.update_all()
         await self.prepare_data_dicts()
@@ -241,24 +244,6 @@ class PjskClientCog(Cog):
                             asset_bundle_name=card.asset_bundle_name,
                         )
 
-    async def add_music_vocal_embed_fields(
-        self, music_vocal: MusicVocalData, embed: discord.Embed, set_publish_info=False
-    ):
-        embed.add_field(
-            name=music_vocal.caption,
-            value=music_vocal.character_str(),
-            inline=False,
-        )
-        if set_publish_info:
-            embed.add_field(
-                name="publish at", value=music_vocal.publish_at_str(), inline=False
-            )
-            embed.add_field(
-                name="release condition",
-                value=music_vocal.release_condition_str(),
-                inline=False,
-            )
-
     def music_data_from_music(self, music: Music):
         music_categories: list[MusicCategory] = (
             [
@@ -348,6 +333,7 @@ class PjskClientCog(Cog):
                 if music_vocal.release_condition_id
                 else None
             ),
+            asset_bundle_name=music_vocal.asset_bundle_name,
         )
 
     async def diff_musics(self, old_musics: dict[int, Music]):
@@ -366,11 +352,10 @@ class PjskClientCog(Cog):
                         out_embed = self.client.generate_embed(
                             title=f"new music found!"
                         )
-                        await music_data.add_embed_fields(out_embed, set_title=False)
-                        out_embed_file = await music_data.add_embed_thumbnail(
-                            self.pjsk_client, out_embed
-                        )
-                        if out_embed_file:
+                        music_data.add_embed_fields(out_embed, set_title=False)
+
+                        if images := await music_data.get_images(self.pjsk_client):
+                            out_embed_file = add_embed_thumbnail(out_embed, images[0])
                             await music_channel.send(
                                 file=out_embed_file, embed=out_embed
                             )
@@ -392,41 +377,36 @@ class PjskClientCog(Cog):
                             out_embed = self.client.generate_embed(
                                 title=f"new vocal found!"
                             )
-                            await self.add_music_vocal_embed_fields(
-                                vocal_data, out_embed, set_publish_info=True
+                            vocal_data.add_embed_fields(
+                                out_embed, set_publish_info=True
                             )
-                            out_embed_file = await vocal_data.music.add_embed_thumbnail(
-                                self.pjsk_client, out_embed
+                            images, vocals = await asyncio.gather(
+                                vocal_data.get_images(self.pjsk_client),
+                                vocal_data.get_vocals(self.pjsk_client),
                             )
-                            if out_embed_file:
+
+                            if images:
+                                out_embed_file = add_embed_thumbnail(
+                                    out_embed, images[0]
+                                )
                                 await vocal_channel.send(
                                     file=out_embed_file, embed=out_embed
                                 )
                             else:
                                 await vocal_channel.send(embed=out_embed)
 
-                            vocal_paths = await load_asset(
-                                self.pjsk_client,
-                                f"music/long/{vocal.asset_bundle_name}",
-                            )
-                            jacket_paths = await load_asset(
-                                self.pjsk_client,
-                                f"music/jacket/{vocal_data.music.asset_bundle_name}",
-                            )
-
                             music_path = None
                             if (
-                                vocal_paths
-                                and jacket_paths
+                                images
+                                and vocals
                                 and (
                                     vocal_path := next(
-                                        vocal_paths[0].parent.glob("*.wav"),
+                                        vocals[0].parent.glob("*.wav"),
                                         None,
                                     )
                                 )
                             ):
-                                jacket_path = jacket_paths[0]
-                                music_path = await convert_wav(vocal_path, jacket_path)
+                                music_path = await convert_wav(vocal_path, images[0])
                                 filename = f"{vocal_data.music.title}_{vocal.asset_bundle_name}.mp4"
                                 file = discord.File(music_path, filename=filename)
                                 await vocal_channel.send(file=file)
@@ -443,7 +423,7 @@ class PjskClientCog(Cog):
                         ChannelIntentEnum.CARD_LEAK
                     ):
                         out_embed = self.client.generate_embed(title=f"new card found!")
-                        await card.add_embed_fields(out_embed, set_title=False)
+                        card.add_embed_fields(out_embed, set_title=False)
                         out_embed_file = await card.add_embed_image(
                             self.pjsk_client, out_embed
                         )

@@ -13,6 +13,7 @@ from async_pjsekai.models.master_data import (
 import discord
 
 from .music import MusicData
+from ..utils.asset import load_asset
 
 
 @dataclass
@@ -22,6 +23,7 @@ class MusicVocalData:
     character_list: list[str]
     publish_at: Optional[datetime.datetime]
     release_condition: Optional[ReleaseCondition]
+    asset_bundle_name: Optional[str]
 
     def character_str(self):
         return ", ".join(self.character_list)
@@ -47,6 +49,28 @@ class MusicVocalData:
             case _:
                 return f"{self.release_condition.id}: {self.release_condition.sentence}"
 
-    async def add_embed_thumbnail(self, client: Client, embed: discord.Embed):
-        if self.music:
-            return await self.music.add_embed_thumbnail(client, embed)
+    def add_embed_fields(self, embed: discord.Embed, set_publish_info=False):
+        embed.add_field(
+            name=self.caption,
+            value=self.character_str(),
+            inline=False,
+        )
+        if set_publish_info:
+            embed.add_field(
+                name="publish at", value=self.publish_at_str(), inline=False
+            )
+            embed.add_field(
+                name="release condition",
+                value=self.release_condition_str(),
+                inline=False,
+            )
+
+    async def get_images(self, client: Client):
+        return await self.music.get_images(client) if self.music else []
+
+    async def get_vocals(self, client: Client):
+        return (
+            await load_asset(client, f"music/long/{self.asset_bundle_name}")
+            if self.asset_bundle_name
+            else []
+        )

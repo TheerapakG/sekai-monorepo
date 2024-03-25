@@ -17,6 +17,7 @@ from typing import Optional, Literal, TYPE_CHECKING
 
 from ..bot.client import BotClient
 from ..models.music import MusicData
+from ..utils.discord import add_embed_thumbnail
 
 if TYPE_CHECKING:
     from .pjsekai_client import PjskClientCog
@@ -76,10 +77,10 @@ class MusicListEmbedView(discord.ui.View):
                 title=f"Music releasing after <t:{int(self.after.timestamp())}:f> ({self.index}/{len(music_datas)})"
             )
             music_data = music_datas[self.index - 1]
-            await music_data.add_embed_fields(out_embed, set_title=False)
-            out_embed_file = await music_data.add_embed_thumbnail(
-                client_cog.pjsk_client, out_embed
-            )
+            music_data.add_embed_fields(out_embed, set_title=False)
+            out_embed_file = None
+            if images := await music_data.get_images(client_cog.pjsk_client):
+                out_embed_file = add_embed_thumbnail(out_embed, images[0])
             yield "send", {
                 "files": [out_embed_file] if out_embed_file else discord.utils.MISSING,
                 "embed": out_embed,
@@ -168,10 +169,10 @@ class MusicSearchEmbedView(discord.ui.View):
             out_embed = client.generate_embed(
                 title=f"Search result for music containing {self.q} ({self.index}/{len(self.ids)})"
             )
-            await music_data.add_embed_fields(out_embed, set_title=False)
-            out_embed_file = await music_data.add_embed_thumbnail(
-                client_cog.pjsk_client, out_embed
-            )
+            music_data.add_embed_fields(out_embed, set_title=False)
+            out_embed_file = None
+            if images := await music_data.get_images(client_cog.pjsk_client):
+                out_embed_file = add_embed_thumbnail(out_embed, images[0])
             yield "send", {
                 "files": [out_embed_file] if out_embed_file else discord.utils.MISSING,
                 "embed": out_embed,
@@ -281,11 +282,9 @@ class MusicCog(Cog):
         ):
             music_data = pjsk_client_cog.music_data_from_music(music)
             out_embed = ctx.bot.generate_embed()
-            await music_data.add_embed_fields(out_embed, set_title=False)
-            out_embed_file = await music_data.add_embed_thumbnail(
-                pjsk_client_cog.pjsk_client, out_embed
-            )
-            if out_embed_file:
+            music_data.add_embed_fields(out_embed, set_title=False)
+            if images := await music_data.get_images(pjsk_client_cog.pjsk_client):
+                out_embed_file = add_embed_thumbnail(out_embed, images[0])
                 await ctx.send(file=out_embed_file, embed=out_embed)
             else:
                 await ctx.send(embed=out_embed)
@@ -363,11 +362,10 @@ class MusicCog(Cog):
                     out_embed = ctx.bot.generate_embed(
                         title="correct!", description=music_data.title_str()
                     )
-                    out_embed_file = await music_data.add_embed_thumbnail(
-                        pjsk_client_cog.pjsk_client, out_embed
-                    )
-
-                    if out_embed_file:
+                    if images := await music_data.get_images(
+                        pjsk_client_cog.pjsk_client
+                    ):
+                        out_embed_file = add_embed_thumbnail(out_embed, images[0])
                         await ctx.channel.send(file=out_embed_file, embed=out_embed)
                     else:
                         await ctx.channel.send(embed=out_embed)
@@ -381,11 +379,10 @@ class MusicCog(Cog):
                     out_embed = ctx.bot.generate_embed(
                         title="try again...", description=guess_music_data.title_str()
                     )
-                    out_embed_file = await guess_music_data.add_embed_thumbnail(
-                        pjsk_client_cog.pjsk_client, out_embed
-                    )
-
-                    if out_embed_file:
+                    if images := await music_data.get_images(
+                        pjsk_client_cog.pjsk_client
+                    ):
+                        out_embed_file = add_embed_thumbnail(out_embed, images[0])
                         await ctx.channel.send(file=out_embed_file, embed=out_embed)
                     else:
                         await ctx.channel.send(embed=out_embed)
@@ -420,11 +417,8 @@ class MusicCog(Cog):
         out_embed = ctx.bot.generate_embed(
             title="aww...", description=guess.music.title_str()
         )
-        out_embed_file = await guess.music.add_embed_thumbnail(
-            pjsk_client_cog.pjsk_client, out_embed
-        )
-
-        if out_embed_file:
+        if images := await guess.music.get_images(pjsk_client_cog.pjsk_client):
+            out_embed_file = add_embed_thumbnail(out_embed, images[0])
             await ctx.send(file=out_embed_file, embed=out_embed)
         else:
             await ctx.send(embed=out_embed)
@@ -486,13 +480,11 @@ class MusicCog(Cog):
                     inline=False,
                 )
 
-            out_embed_file = await music_data.add_embed_thumbnail(
-                pjsk_client_cog.pjsk_client, out_embed
-            )
-            if out_embed_file:
-                await ctx.send(file=out_embed_file, embed=out_embed)
-            else:
-                await ctx.send(embed=out_embed)
+                if images := await music_data.get_images(pjsk_client_cog.pjsk_client):
+                    out_embed_file = add_embed_thumbnail(out_embed, images[0])
+                    await ctx.send(file=out_embed_file, embed=out_embed)
+                else:
+                    await ctx.send(embed=out_embed)
         else:
             await ctx.send("Not found!")
 

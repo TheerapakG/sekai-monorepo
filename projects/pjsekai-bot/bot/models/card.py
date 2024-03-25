@@ -121,7 +121,7 @@ class CardData:
             else "??"
         )
 
-    async def add_embed_fields(self, embed: discord.Embed, set_title=True):
+    def add_embed_fields(self, embed: discord.Embed, set_title=True):
         if set_title:
             embed.title = f"{self.title_str()}: {self.character_str()}"
         else:

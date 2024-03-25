@@ -130,7 +130,7 @@ class MusicData:
             ]
         )
 
-    async def add_embed_fields(self, embed: discord.Embed, set_title=True):
+    def add_embed_fields(self, embed: discord.Embed, set_title=True):
         categories = self.category_strs()
         categories_str = f"{', '.join(categories)}" if categories else None
         tags = self.tag_long_strs()
@@ -161,14 +161,12 @@ class MusicData:
             name="release condition", value=self.release_condition_str(), inline=False
         )
 
-    async def add_embed_thumbnail(self, client: Client, embed: discord.Embed):
-        img_path = await load_asset(client, f"music/jacket/{self.asset_bundle_name}")
-        if img_path:
-            filepath = img_path[0]
-            filename = filepath.name
-            file = discord.File(img_path[0], filename=filename)
-            embed.set_thumbnail(url=f"attachment://{filename}")
-            return file
+    async def get_images(self, client: Client):
+        return (
+            await load_asset(client, f"music/jacket/{self.asset_bundle_name}")
+            if self.asset_bundle_name
+            else []
+        )
 
     async def add_embed_random_crop_thumbnail(
         self, client: Client, embed: discord.Embed
