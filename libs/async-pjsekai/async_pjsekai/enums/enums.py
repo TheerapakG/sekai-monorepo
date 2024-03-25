@@ -108,7 +108,7 @@ class MusicDifficultyType(Enum):
     HARD = "hard"
     EXPERT = "expert"
     MASTER = "master"
-    APPEND = "third"
+    APPEND = "append"
 
     def __str__(self):
         return MUSIC_DIFFICULTY_TYPE_LOOKUP[self]
